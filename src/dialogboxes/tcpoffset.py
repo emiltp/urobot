@@ -196,6 +196,11 @@ class TCPOffsetDialog(OffsetDialog):
 
         return [self.from_sphere_btn, self.from_home_btn]
 
+    def showEvent(self, event):
+        """Refresh From Sphere button state when dialog is shown (enable if sphere exists)."""
+        super().showEvent(event)
+        self.from_sphere_btn.setEnabled(getattr(self.parent, 'fitted_sphere', None) is not None)
+
     # ── TCP-specific shortcut actions ────────────────────────────────────
 
     def _set_from_sphere(self):

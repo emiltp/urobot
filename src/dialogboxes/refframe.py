@@ -22,6 +22,11 @@ class RefFrameOffsetDialog(OffsetDialog):
         return "Set Ref Frame Offset"
 
     def _frame_labels(self):
+        """Return (parent_label, child_label) based on robot's ref frame parent: TCP or Flange / Ref frame."""
+        if self.parent.robot is not None:
+            relative_to = self.parent.robot.getRefFrameRelativeTo()
+            parent = "Flange" if relative_to == "flange" else "TCP"
+            return (parent, "Ref frame")
         return ("TCP", "Ref frame")
 
     def _save_file_path(self):
@@ -29,9 +34,7 @@ class RefFrameOffsetDialog(OffsetDialog):
 
     def _get_current_offset(self):
         if self.parent.robot is not None:
-            offset = self.parent.robot.refFrameOffset
-            if offset is not None:
-                return offset
+            return self.parent.robot.refFrameOffset
         return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     def _apply_offset(self, offset):

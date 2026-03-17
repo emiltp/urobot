@@ -2,7 +2,7 @@ import time
 import math
 import os
 import numpy as np
-from src.utils import axis_angle_to_rotation_matrix, transform_wrench
+from src.utils import axis_angle_to_rotation_matrix
 from config import defaults as CONFIG
 
 def execute(self):
@@ -16,6 +16,7 @@ def execute(self):
     maxAdjustmentPerStep = self.kwargs.get('max_adjustment_per_step', CONFIG.flexion_y_original.max_adjustment_per_step)
     minAdjustmentInterval = self.kwargs.get('min_adjustment_interval', CONFIG.flexion_y_original.min_adjustment_interval)
     forceLimitX = self.kwargs.get('force_limit_x', CONFIG.flexion_y.force_limit_x)
+    momentLimitY = self.kwargs.get('max_moment', getattr(CONFIG.flexion_y, 'max_moment', 3.0))
     pathFile = self.kwargs.get('path_file', None)
     
     # Determine direction from pathFile for direction-dependent force limit
@@ -58,43 +59,54 @@ def execute(self):
             if progress >= 0:
                 self.movement_progress.emit(f"Asynchronous operation progress: {progress}")
             
-            tcpWrenchInBase = self.rtde_r.getActualTCPForce()
             tcpPose = list(self.rtde_r.getActualTCPPose())
-            tcpForce = transform_wrench(tcpPose, tcpWrenchInBase)
-            forceXTcp = tcpForce[0]
+            tcpForce = self.robot.getTcpForceInTcpFrame()
+            if tcpForce is None:
+                tcpForce = [0.0] * 6
+            refWrench = self.robot.getRefFrameForceInRefFrame(self.robot.getRefFrameRelativeTo())
+            if refWrench is None:
+                refWrench = [0.0] * 6
+            forceXRef = refWrench[0]  # Force limit uses Ref frame Fx
             forceZTcp = tcpForce[2]
+            momentYTcp = tcpForce[4]  # Moment limit uses TCP My
             forceMagnitude = math.sqrt(tcpForce[0]**2 + tcpForce[1]**2 + tcpForce[2]**2)
             
+            # Check limits: force in Ref frame, moment in TCP frame
+            forceExceeded = False
+            momentExceeded = False
             if direction == 'left':
-                limitDisplay = f"limit: < {forceLimitX:.2f} N"
+                forceLimitDisplay = f"limit: < {forceLimitX:.2f} N"
+                momentLimitDisplay = f"limit: < {momentLimitY:.2f} Nm"
+                if forceXRef > forceLimitX:
+                    forceExceeded = True
+                if momentLimitY > 0 and momentYTcp > momentLimitY:
+                    momentExceeded = True
             elif direction == 'right':
-                limitDisplay = f"limit: > -{forceLimitX:.2f} N"
+                forceLimitDisplay = f"limit: > -{forceLimitX:.2f} N"
+                momentLimitDisplay = f"limit: > -{momentLimitY:.2f} Nm"
+                if forceXRef < -forceLimitX:
+                    forceExceeded = True
+                if momentLimitY > 0 and momentYTcp < -momentLimitY:
+                    momentExceeded = True
             else:
-                limitDisplay = f"limit: ±{forceLimitX:.2f} N"
+                forceLimitDisplay = f"limit: ±{forceLimitX:.2f} N"
+                momentLimitDisplay = f"limit: ±{momentLimitY:.2f} Nm"
+                if abs(forceXRef) > forceLimitX:
+                    forceExceeded = True
+                if momentLimitY > 0 and abs(momentYTcp) > momentLimitY:
+                    momentExceeded = True
             
             self.movement_progress.emit(
-                f"Force in TCP frame:\n"
-                f"  Fx: {forceXTcp:.3f} N ({limitDisplay})\n"
+                f"Force (Ref frame Fx for limit):\n"
+                f"  Fx: {forceXRef:.3f} N ({forceLimitDisplay})\n"
                 f"  Fz: {forceZTcp:.3f} N (target: 0.0 N)\n"
+                f"  My: {momentYTcp:.3f} Nm ({momentLimitDisplay})\n"
                 f"  Total: {forceMagnitude:.2f} N"
             )
             
-            # Check force limit
-            forceExceeded = False
-            if direction == 'right':
-                if forceXTcp > forceLimitX:
-                    forceExceeded = True
-            elif direction == 'left':
-                if forceXTcp < -forceLimitX:
-                    forceExceeded = True
-            else:
-                if abs(forceXTcp) > forceLimitX:
-                    forceExceeded = True
-            
-            if forceExceeded:
-                self.movement_progress.emit(
-                    f"Force threshold exceeded! Fx: {forceXTcp:.3f} N ({limitDisplay}). Stopping movement."
-                )
+            if forceExceeded or momentExceeded:
+                msg = f"Limit exceeded! Fx: {forceXRef:.3f} N ({forceLimitDisplay}), My: {momentYTcp:.3f} Nm ({momentLimitDisplay}). Stopping movement."
+                self.movement_progress.emit(msg)
                 try:
                     self.rtde_c.stopL()
                 except Exception:

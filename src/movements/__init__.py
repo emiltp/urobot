@@ -8,6 +8,9 @@ Home is not in the registry; import separately: from src.movements import home
 import importlib
 
 MOTIONS = [
+    ("arc_x", "Arc (x)"),
+    ("arc_y", "Arc (y)"),
+    ("arc_z", "Arc (z)"),
     ("new_x", "New (x)"),
     ("new_y", "New (y)"),
     ("new_z", "New (z)"),
@@ -15,6 +18,7 @@ MOTIONS = [
     ("flexion_x", "Flexion (x) "),
     ("flexion_y", "Flexion (y)"),
     ("axial_rotation", "Axial Rotation"),
+    ("arc_force", "Arc (Fz-constrained)"),
 ]
 
 # motion_id -> import path segment (when different from motion_id)

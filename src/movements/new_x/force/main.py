@@ -12,7 +12,7 @@ import math
 import os
 import numpy as np
 from scipy.spatial.transform import Rotation
-from src.utils import axis_angle_to_rotation_matrix, transform_wrench, rotation_matrix_to_axis_angle
+from src.utils import axis_angle_to_rotation_matrix, rotation_matrix_to_axis_angle
 from config import defaults as CONFIG
 
 
@@ -94,9 +94,10 @@ def execute(self):
                 self.movement_progress.emit("Target pose reached!")
                 break
 
-            # Force monitoring
-            tcpWrenchInBase = self.rtde_r.getActualTCPForce()
-            tcpForce = transform_wrench(currentPose, tcpWrenchInBase)
+            # Force monitoring (wrench at TCP in TCP frame)
+            tcpForce = self.robot.getTcpForceInTcpFrame()
+            if tcpForce is None:
+                tcpForce = [0.0] * 6
             forceYTcp = tcpForce[1]
             forceZTcp = tcpForce[2]
 

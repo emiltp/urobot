@@ -154,6 +154,22 @@ class FlexionXWidget(QWidget):
         fy_layout.addWidget(self.fy_limit_input)
         self.movement_group.addLayout(fy_layout)
         
+        # Max Moment Mx (common to all methods) - directional stopping criteria
+        flexion_cfg = getattr(CONFIG, 'flexion_x', None)
+        arc_cfg = getattr(CONFIG, 'arc_x', CONFIG.arc_force)
+        max_moment_default = getattr(flexion_cfg, 'max_moment', None) or getattr(arc_cfg, 'max_moment', 3.0)
+        mx_layout = QHBoxLayout()
+        mx_layout.addWidget(QLabel("Max Moment Mx (Nm):"))
+        self.mx_limit_input = QDoubleSpinBox()
+        self.mx_limit_input.setRange(0.1, 50.0)
+        self.mx_limit_input.setDecimals(2)
+        self.mx_limit_input.setValue(max_moment_default)
+        self.mx_limit_input.setSingleStep(0.1)
+        self.mx_limit_input.setMaximumWidth(80)
+        self.mx_limit_input.setToolTip(TT["arc_force_max_moment"])
+        mx_layout.addWidget(self.mx_limit_input)
+        self.movement_group.addLayout(mx_layout)
+        
         layout.addWidget(self.movement_group)
         
         # Collection Method Parameters - Original (software Fz compensation)
@@ -307,7 +323,7 @@ class FlexionXWidget(QWidget):
         # Force params visible by default (Force method selected)
         
         # Path Replay Parameters (expanded by default)
-        self.replay_group = CollapsibleGroupBox("Traverse Parameters (servoPath)", expanded=True)
+        self.replay_group = CollapsibleGroupBox("Traverse Parameters (servoPath)", expanded=False)
         
         # Traverse method selector - FIRST
         method_layout = QHBoxLayout()
@@ -639,6 +655,7 @@ class FlexionXWidget(QWidget):
         speed = self.speed_input.value()
         accel = self.accel_input.value()
         force_limit_y = self.fy_limit_input.value()
+        max_moment = self.mx_limit_input.value()
         direction_multiplier = DIRECTION_MAP[direction]
         method_module = self._get_current_method_module()
         method = self.method_combo.currentData()
@@ -735,6 +752,8 @@ class FlexionXWidget(QWidget):
                 speed=speed,
                 accel=accel,
                 force_limit_y=force_limit_y,
+                max_moment=max_moment,
+                direction_multiplier=direction_multiplier,
                 path_file=path_file,
                 collection_method=method,  # "original", "hybrid", or "force"
                 traverseMethod=self.traverse_method_combo.currentData(),

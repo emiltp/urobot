@@ -68,7 +68,8 @@ class UniversalRobot:
         self._tcpPose: Optional[List[float]] = None  # [x, y, z, rx, ry, rz]
         self._flangePose: Optional[List[float]] = None  # [x, y, z, rx, ry, rz]
         self._tcpOffset: Optional[List[float]] = tcpOffset.copy() if tcpOffset else None
-        self._refFrameOffset: Optional[List[float]] = None  # [x, y, z, rx, ry, rz] relative to TCP
+        self._refFrameOffset: List[float] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # [x, y, z, rx, ry, rz] relative to TCP/flange
+        self._refFrameRelativeTo: str = "tcp"  # "tcp" or "flange" - parent for Ref frame offset
         self._jointPositions: Optional[List[float]] = None  # [q0, q1, q2, q3, q4, q5]
         self._tcpForce: Optional[List[float]] = None  # [Fx, Fy, Fz, Mx, My, Mz]
         self._stateLock = threading.Lock()
@@ -140,6 +141,18 @@ class UniversalRobot:
                 
                 # Read initial state
                 self._updateState()
+                
+                # Check if getActualToolFlangePose is available
+                if hasattr(self._rtdeC, 'getActualToolFlangePose'):
+                    print("getActualToolFlangePose: available")
+                else:
+                    print("getActualToolFlangePose: not available")
+
+                # Check if getActualToolFlangePose is available
+                if hasattr(self._rtdeR, 'getActualToolFlangePose'):
+                    print("getActualToolFlangePose (receive): available")
+                else:
+                    print("getActualToolFlangePose (receive): not available")
                 
                 print(f"Connected to robot at {self._ip}")
                 return True
@@ -221,15 +234,15 @@ class UniversalRobot:
                 # Read TCP pose
                 self._tcpPose = list(self._rtdeR.getActualTCPPose())
                 
-                # Try to read flange pose
+                # Try to read flange pose (use calculation from TCP+offset - getActualToolFlangePose
+                # on control can block/interfere with connection)
                 try:
-                    self._flangePose = list(self._rtdeR.getActualToolFlangePose())
-                except (AttributeError, Exception):
-                    # Calculate flange pose from TCP pose and offset
                     if self._tcpPose and self._tcpOffset:
                         self._flangePose = self._calculateFlangePoseFromTcp(
                             self._tcpPose, self._tcpOffset
                         )
+                except Exception:
+                    pass
                 
                 # Read joint positions
                 try:
@@ -264,10 +277,10 @@ class UniversalRobot:
             # Update actor visualization with pre-calculated poses
             self._actor.updatePoses(self._tcpPose, flangePose)
             
-            # Update ref frame visualization if offset is set
-            if self._refFrameOffset is not None:
-                refPose = self._calculateRefFramePose(self._tcpPose, self._refFrameOffset)
-                self._actor.updateRefFramePose(refPose)
+            # Update ref frame visualization: parent = TCP or flange based on _refFrameRelativeTo
+            parent_pose = flangePose if self._refFrameRelativeTo == "flange" and flangePose is not None else self._tcpPose
+            refPose = self._calculateRefFramePose(parent_pose, self._refFrameOffset)
+            self._actor.updateRefFramePose(refPose)
         
         return self._tcpPose, self._flangePose
     
@@ -292,6 +305,9 @@ class UniversalRobot:
         """
         Get the current flange (tool flange) pose.
         
+        Uses TCP pose and TCP offset to compute flange pose.
+        (getActualToolFlangePose on RTDE control can block/interfere with connection.)
+        
         Returns:
             Flange pose [x, y, z, rx, ry, rz] or None if not available
         """
@@ -299,14 +315,14 @@ class UniversalRobot:
             return self._flangePose
         
         try:
-            self._flangePose = list(self._rtdeR.getActualToolFlangePose())
-            return self._flangePose.copy()
-        except (AttributeError, Exception):
-            # Calculate from TCP pose and offset if method not available
             if self._tcpPose and self._tcpOffset:
-                self._flangePose = self._calculateFlangePoseFromTcp(self._tcpPose, self._tcpOffset)
+                self._flangePose = self._calculateFlangePoseFromTcp(
+                    self._tcpPose, self._tcpOffset
+                )
                 return self._flangePose.copy() if self._flangePose else None
-            return None
+        except Exception:
+            pass
+        return None
     
     def getJointPositions(self) -> Optional[List[float]]:
         """
@@ -418,14 +434,14 @@ class UniversalRobot:
     # REFERENCE FRAME OFFSET METHODS
     # =========================================================================
     
-    def getRefFrameOffset(self) -> Optional[List[float]]:
+    def getRefFrameOffset(self) -> List[float]:
         """
         Get the current reference frame offset relative to TCP.
         
         Returns:
-            Ref frame offset [x, y, z, rx, ry, rz] or None
+            Ref frame offset [x, y, z, rx, ry, rz] (never None; default [0,0,0,0,0,0])
         """
-        return self._refFrameOffset.copy() if self._refFrameOffset else None
+        return self._refFrameOffset.copy()
     
     def setRefFrameOffset(self, offset: List[float]) -> bool:
         """
@@ -443,24 +459,36 @@ class UniversalRobot:
         
         self._refFrameOffset = offset.copy()
         
-        # Update visualization immediately if TCP pose is available
-        if self._tcpPose is not None:
-            refPose = self._calculateRefFramePose(self._tcpPose, self._refFrameOffset)
+        # Update visualization immediately if pose is available
+        parent_pose = self._flangePose if self._refFrameRelativeTo == "flange" and self._flangePose is not None else self._tcpPose
+        if parent_pose is not None:
+            refPose = self._calculateRefFramePose(parent_pose, self._refFrameOffset)
             self._actor.updateRefFramePose(refPose)
         
         print(f"Ref frame offset set: {offset}")
         return True
     
+    def setRefFrameRelativeTo(self, relative_to: str) -> None:
+        """Set whether Ref frame offset is applied relative to TCP or flange.
+        
+        Args:
+            relative_to: "tcp" or "flange"
+        """
+        self._refFrameRelativeTo = "flange" if relative_to.lower() == "flange" else "tcp"
+    
+    def getRefFrameRelativeTo(self) -> str:
+        """Return whether Ref frame offset is relative to 'tcp' or 'flange'."""
+        return self._refFrameRelativeTo
+    
     def clearRefFrameOffset(self) -> None:
-        """Clear the reference frame offset and hide the ref frame."""
-        self._refFrameOffset = None
-        self._actor.hideRefFrame()
-        print("Ref frame offset cleared")
+        """Reset the reference frame offset to [0,0,0,0,0,0]."""
+        self.setRefFrameOffset([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        print("Ref frame offset cleared (reset to zero)")
     
     @property
-    def refFrameOffset(self) -> Optional[List[float]]:
+    def refFrameOffset(self) -> List[float]:
         """Current ref frame offset [x, y, z, rx, ry, rz] relative to TCP."""
-        return self._refFrameOffset.copy() if self._refFrameOffset else None
+        return self._refFrameOffset.copy()
     
     # =========================================================================
     # CALCULATION METHODS
@@ -843,27 +871,141 @@ class UniversalRobot:
     
     def getTcpForceInTcpFrame(self) -> Optional[List[float]]:
         """
-        Get TCP force transformed to TCP frame.
+        Get wrench (force + moment) at the TCP, expressed in the TCP frame.
+
+        Returns force size and direction, and moment size and direction, as measured
+        at the TCP and presented in TCP coordinates. Takes into account the full TCP
+        pose (including tool offset from flange).
+
+        UR reports force/torque at the flange in base frame. To get the wrench at
+        the TCP in TCP frame:
+        1. Translate moment from flange to TCP: M_tcp = M_flange - (tcp - flange) × F
+        2. Rotate force and moment to TCP frame using TCP orientation
+
+        Returns:
+            Wrench [Fx, Fy, Fz, Mx, My, Mz] at TCP in TCP frame, or None
+        """
+        force_base = self.getTcpForce()
+        tcp_pose = self.getTcpPose()
+        flange_pose = self.getFlangePose()
+
+        if force_base is None or tcp_pose is None:
+            return None
+
+        F_base = np.array(force_base[:3], dtype=float)
+        M_flange_base = np.array(force_base[3:6], dtype=float)
+
+        # Translate moment from flange to TCP if we have flange pose
+        if flange_pose is not None:
+            r_base = np.array(tcp_pose[:3]) - np.array(flange_pose[:3])  # tcp - flange
+            M_tcp_base = M_flange_base - np.cross(r_base, F_base)
+        else:
+            M_tcp_base = M_flange_base
+
+        # Rotate to TCP frame (TCP orientation includes tool offset)
+        R_base_tcp = axis_angle_to_rotation_matrix(
+            tcp_pose[3], tcp_pose[4], tcp_pose[5]
+        )
+        R_tcp_base = R_base_tcp.T
+        force_tcp = R_tcp_base @ F_base
+        moment_tcp = R_tcp_base @ M_tcp_base
+
+        return [
+            float(force_tcp[0]), float(force_tcp[1]), float(force_tcp[2]),
+            float(moment_tcp[0]), float(moment_tcp[1]), float(moment_tcp[2]),
+        ]
+    
+    def getFlangeForceInFlangeFrame(self) -> Optional[List[float]]:
+        """
+        Get wrench (force + moment) at the flange, expressed in the flange frame.
+        
+        UR reports at flange in base frame. Rotate to flange orientation.
+        No moment translation (already at flange).
         
         Returns:
-            Force [Fx, Fy, Fz, Mx, My, Mz] in TCP frame or None
+            Wrench [Fx, Fy, Fz, Mx, My, Mz] at flange in flange frame, or None
         """
-        force = self.getTcpForce()
-        pose = self.getTcpPose()
+        force_base = self.getTcpForce()
+        flange_pose = self.getFlangePose()
         
-        if force is None or pose is None:
+        if force_base is None or flange_pose is None:
             return None
         
-        # Transform force from base frame to TCP frame
-        RTcp = axis_angle_to_rotation_matrix(pose[3], pose[4], pose[5])
-        RTcpInv = RTcp.T
+        F_base = np.array(force_base[:3], dtype=float)
+        M_flange_base = np.array(force_base[3:6], dtype=float)
         
-        forceTcp = RTcpInv @ np.array(force[:3])
-        momentTcp = RTcpInv @ np.array(force[3:6])
+        R_base_flange = axis_angle_to_rotation_matrix(
+            flange_pose[3], flange_pose[4], flange_pose[5]
+        )
+        R_flange_base = R_base_flange.T
+        force_flange = R_flange_base @ F_base
+        moment_flange = R_flange_base @ M_flange_base
         
         return [
-            float(forceTcp[0]), float(forceTcp[1]), float(forceTcp[2]),
-            float(momentTcp[0]), float(momentTcp[1]), float(momentTcp[2])
+            float(force_flange[0]), float(force_flange[1]), float(force_flange[2]),
+            float(moment_flange[0]), float(moment_flange[1]), float(moment_flange[2]),
+        ]
+    
+    def getRefFrameForceInRefFrame(self, relative_to: str) -> Optional[List[float]]:
+        """
+        Get wrench at the Ref frame, expressed in the Ref frame.
+        
+        When Ref frame offset is set: RefFrame = Parent @ Offset with Parent = TCP or flange.
+        Translates moment from flange to Ref frame, then rotates to Ref frame.
+        When Ref frame offset is not set: fall back to flange (wrench at flange in flange frame).
+        
+        Args:
+            relative_to: "tcp" or "flange" - parent frame for Ref frame offset
+        
+        Returns:
+            Wrench [Fx, Fy, Fz, Mx, My, Mz] at Ref frame in Ref frame, or None
+        """
+        force_base = self.getTcpForce()
+        tcp_pose = self.getTcpPose()
+        flange_pose = self.getFlangePose()
+        ref_offset = self.getRefFrameOffset()
+        
+        if force_base is None:
+            return None
+        
+        F_base = np.array(force_base[:3], dtype=float)
+        M_flange_base = np.array(force_base[3:6], dtype=float)
+        
+        # Fallback: when Ref frame offset not set, use flange
+        if ref_offset is None or len(ref_offset) < 6:
+            return self.getFlangeForceInFlangeFrame()
+        
+        # Get parent pose (TCP or flange)
+        if relative_to.lower() == "flange":
+            if flange_pose is None:
+                return self.getFlangeForceInFlangeFrame()
+            parent_pose = flange_pose
+        else:
+            if tcp_pose is None:
+                return self.getFlangeForceInFlangeFrame()
+            parent_pose = tcp_pose
+        
+        ref_pose = self._calculateRefFramePose(parent_pose, ref_offset)
+        if flange_pose is None:
+            return self.getFlangeForceInFlangeFrame()
+        
+        # Translate moment from flange to Ref frame
+        flange_pos = np.array(flange_pose[:3])
+        ref_pos = np.array(ref_pose[:3])
+        r_base = flange_pos - ref_pos  # vector from ref to flange
+        M_ref_base = M_flange_base + np.cross(r_base, F_base)
+        
+        # Rotate to Ref frame
+        R_base_ref = axis_angle_to_rotation_matrix(
+            ref_pose[3], ref_pose[4], ref_pose[5]
+        )
+        R_ref_base = R_base_ref.T
+        force_ref = R_ref_base @ F_base
+        moment_ref = R_ref_base @ M_ref_base
+        
+        return [
+            float(force_ref[0]), float(force_ref[1]), float(force_ref[2]),
+            float(moment_ref[0]), float(moment_ref[1]), float(moment_ref[2]),
         ]
     
     # =========================================================================

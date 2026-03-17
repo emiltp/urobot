@@ -305,7 +305,7 @@ class NewYWidget(QWidget):
         layout.addWidget(self.force_params_group)
         
         # ── Traverse Parameters ──────────────────────────────
-        self.replay_group = CollapsibleGroupBox("Traverse Parameters (servoPath)", expanded=True)
+        self.replay_group = CollapsibleGroupBox("Traverse Parameters (servoPath)", expanded=False)
         
         method_layout = QHBoxLayout()
         method_layout.addWidget(QLabel("Method:"))

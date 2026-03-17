@@ -95,7 +95,7 @@ class AxialRotationWidget(QWidget):
         # =====================================================
         # MOVEMENT PARAMETERS (shared by all methods)
         # =====================================================
-        self.movement_group = CollapsibleGroupBox("Movement Parameters", expanded=True)
+        self.movement_group = CollapsibleGroupBox("Movement Parameters", expanded=False)
 
         self.angle_input = self._add_spin(
             self.movement_group, "Rotation Angle (deg):", 0.0, 90.0,
@@ -195,7 +195,7 @@ class AxialRotationWidget(QWidget):
         # =====================================================
         # TRAVERSE PARAMETERS (Hybrid/Force only)
         # =====================================================
-        self.replay_group = CollapsibleGroupBox("Traverse Parameters (servoPath)", expanded=True)
+        self.replay_group = CollapsibleGroupBox("Traverse Parameters (servoPath)", expanded=False)
 
         traverse_method_layout = QHBoxLayout()
         traverse_method_layout.addWidget(QLabel("Method:"))

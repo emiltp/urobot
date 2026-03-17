@@ -50,7 +50,8 @@ except ImportError:
 
 from src.utils import axis_angle_to_rotation_matrix, rotation_matrix_to_axis_angle
 from src.dialogboxes.tcpoffset import TCPOffsetDialog
-from src.dialogboxes.refframe import RefFrameOffsetDialog
+from src.dialogboxes.refframe import RefFrameOffsetDialog, REF_FRAME_FILE, save_ref_frame_offset
+from src.dialogboxes.offset_dialog import load_offset
 from src.terminalstream import TerminalStream
 from src import sphere
 from src.objects import WireframeSphereActor, TrackedPointsActor, UniversalRobot, RobotUpdateThread
@@ -491,6 +492,17 @@ class TCPVisualizer(QMainWindow):
         ref_label = QLabel("Ref frame:")
         ref_label.setStyleSheet("font-weight: bold;")
         ref_header_row.addWidget(ref_label)
+        
+        # Dropdown: Ref frame relative to TCP or flange
+        self.ref_frame_relative_combo = QComboBox()
+        self.ref_frame_relative_combo.addItems(["TCP", "Flange"])
+        self.ref_frame_relative_combo.setCurrentIndex(0)
+        self.ref_frame_relative_combo.setToolTip("Ref frame offset is applied relative to TCP or Flange")
+        self.ref_frame_relative_combo.setMinimumWidth(120)
+        self.ref_frame_relative_combo.setEnabled(False)
+        self.ref_frame_relative_combo.currentIndexChanged.connect(self._on_ref_frame_relative_changed)
+        ref_header_row.addWidget(self.ref_frame_relative_combo)
+        
         ref_header_row.addStretch()
 
         # Align ref frame orientation to base at current TCP position
@@ -578,7 +590,12 @@ class TCPVisualizer(QMainWindow):
         self.ref_frame_text.setReadOnly(True)
         self.ref_frame_text.setMaximumHeight(70)
         self.ref_frame_text.setFont(MONOSPACE_QFONT)
-        self.ref_frame_text.setText("Not set")
+        self.ref_frame_text.setText(
+            "Position (m)     Orientation (deg)\n"
+            " X:    0.0000     RX:    0.0000\n"
+            " Y:    0.0000     RY:    0.0000\n"
+            " Z:    0.0000     RZ:    0.0000"
+        )
         self.ref_frame_text.setVisible(False)
         tcp_layout.addWidget(self.ref_frame_text)
         
@@ -1110,17 +1127,30 @@ class TCPVisualizer(QMainWindow):
                     self.align_ref_btn.setEnabled(True)
                     self.set_ref_btn.setEnabled(True)
                     self.clear_ref_btn.setEnabled(True)
+                    self.ref_frame_relative_combo.setEnabled(True)
                     self.motion_combo.setEnabled(True)
                     self.home_go_btn.setEnabled(self.home_position is not None)
                     self.home_set_btn.setEnabled(True)
                     
-                    # Update freemove widget button states
+                    # Update motion widget button states (current visible + freemove)
+                    current_motion = self.motion_combo.currentData()
+                    if current_motion and current_motion in self.motion_widgets:
+                        w = self.motion_widgets[current_motion]
+                        if hasattr(w, '_update_button_states'):
+                            w._update_button_states()
                     freemove_widget = self.motion_widgets.get('freemove')
                     if freemove_widget and hasattr(freemove_widget, '_update_button_states'):
                         freemove_widget._update_button_states()
                     
                     # Update TCP offset display after connection
                     self.update_tcp_offset_display()
+                    
+                    # Load ref frame offset from file if it exists, else keep [0,0,0,0,0,0]
+                    self._load_and_apply_ref_frame_offset()
+                    # Sync ref frame parent (TCP vs flange) from dropdown
+                    relative_to = "flange" if self.ref_frame_relative_combo.currentIndex() == 1 else "tcp"
+                    self.robot.setRefFrameRelativeTo(relative_to)
+                    self.update_ref_frame_display()
                     
                     # Reset camera to show both base and TCP axes after a short delay
                     QTimer.singleShot(500, self.reset_camera_to_show_all)
@@ -1166,9 +1196,17 @@ class TCPVisualizer(QMainWindow):
             self.align_ref_btn.setEnabled(False)
             self.set_ref_btn.setEnabled(False)
             self.clear_ref_btn.setEnabled(False)
+            self.ref_frame_relative_combo.setEnabled(False)
             self.motion_combo.setEnabled(False)
             self.home_go_btn.setEnabled(False)
             self.home_set_btn.setEnabled(False)
+            
+            # Update motion widget button states after disconnect
+            current_motion = self.motion_combo.currentData()
+            if current_motion and current_motion in self.motion_widgets:
+                w = self.motion_widgets[current_motion]
+                if hasattr(w, '_update_button_states'):
+                    w._update_button_states()
             
             # Clear TCP tracking data
             self.tcp_tracking_enabled = False
@@ -1206,7 +1244,7 @@ class TCPVisualizer(QMainWindow):
             # Reset TCP Panel display
             self.pose_text.setText("Not available")
             self.tcp_offset_text.setText("Not available")
-            self.ref_frame_text.setText("Not set")
+            self.update_ref_frame_display()  # Shows current offset (default [0,0,0,0,0,0])
     
     def _handle_pose_update(self, tcp_pose: tuple, flange_pose: tuple):
         """Handle pose updates from the robot update thread.
@@ -1225,10 +1263,14 @@ class TCPVisualizer(QMainWindow):
         if self.flange_tracking_enabled:
             self.check_and_track_flange_position(flange_pose[:3])
         
-        # Update real-time graphs with pose and force data
-        if hasattr(self, 'graphs_widget'):
-            tcp_force = self.robot.getTcpForceInTcpFrame() if self.robot else None
-            self.graphs_widget.update_pose(tcp_pose, flange_pose, tcp_force)
+        # Update real-time graphs with pose and force data (TCP force + Ref frame force)
+        if hasattr(self, 'graphs_widget') and self.robot:
+            tcp_force = self.robot.getTcpForceInTcpFrame()
+            relative_to = "tcp" if self.ref_frame_relative_combo.currentIndex() == 0 else "flange"
+            ref_frame_force = self.robot.getRefFrameForceInRefFrame(relative_to)
+            self.graphs_widget.update_pose(tcp_pose, flange_pose,
+                                           tcp_force_in_tcp_frame=tcp_force,
+                                           ref_frame_force=ref_frame_force)
     
     def _handle_protective_stop(self, stop_type: str):
         """Handle protective stop, emergency stop, or connection loss events.
@@ -1277,6 +1319,7 @@ class TCPVisualizer(QMainWindow):
         self.align_ref_btn.setEnabled(False)
         self.set_ref_btn.setEnabled(False)
         self.clear_ref_btn.setEnabled(False)
+        self.ref_frame_relative_combo.setEnabled(False)
         self.motion_combo.setEnabled(False)
         self.home_go_btn.setEnabled(False)
         self.home_set_btn.setEnabled(False)
@@ -1301,7 +1344,8 @@ class TCPVisualizer(QMainWindow):
             if widget:
                 if hasattr(widget, '_remove_endpoint_visualization'):
                     widget._remove_endpoint_visualization()
-                widget._hide_path_visualization()
+                if hasattr(widget, '_hide_path_visualization'):
+                    widget._hide_path_visualization()
         
         if motion_type and motion_type in self.motion_ids:
             stack_idx = self.motion_ids.index(motion_type) + 1
@@ -1309,6 +1353,8 @@ class TCPVisualizer(QMainWindow):
             widget = self.motion_widgets[motion_type]
             if hasattr(widget, '_update_button_states'):
                 widget._update_button_states()
+            if hasattr(widget, '_update_endpoint_visualization'):
+                widget._update_endpoint_visualization()
         else:
             self.motion_stack.setCurrentIndex(0)
         
@@ -1970,12 +2016,6 @@ class TCPVisualizer(QMainWindow):
             offset_text += f" Y: {y:>9.4f}     RY: {np.rad2deg(ry):>9.4f}\n"
             offset_text += f" Z: {z:>9.4f}     RZ: {np.rad2deg(rz):>9.4f}"
             self.tcp_offset_text.setText(offset_text)
-            
-            # Update graphs widget rotation weight based on TCP offset magnitude
-            if hasattr(self, 'graphs_widget'):
-                tcp_offset_magnitude = np.sqrt(x**2 + y**2 + z**2)
-                self.graphs_widget.set_rotation_weight(tcp_offset_magnitude)
-            
         except Exception as e:
             print(f"Warning: Could not read TCP offset for display: {e}")
             self.tcp_offset_text.setText("Not available")
@@ -2023,12 +2063,27 @@ class TCPVisualizer(QMainWindow):
         dialog = RefFrameOffsetDialog(self)
         dialog.exec()
     
+    def _on_ref_frame_relative_changed(self, index: int):
+        """Sync robot's ref frame parent (TCP vs flange) when dropdown changes."""
+        if self.robot:
+            relative_to = "flange" if index == 1 else "tcp"
+            self.robot.setRefFrameRelativeTo(relative_to)
+            self.update_visualization()
+    
     def clear_ref_frame(self):
-        """Clear the ref frame offset and hide the ref frame visualization."""
+        """Reset the ref frame offset to [0,0,0,0,0,0]."""
         if self.robot:
             self.robot.clearRefFrameOffset()
+            save_ref_frame_offset([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.update_ref_frame_display()
+        self.update_visualization()
         self.vtk_widget.GetRenderWindow().Render()
+    
+    def _load_and_apply_ref_frame_offset(self):
+        """Load ref frame offset from file if it exists and apply it. Otherwise keep default [0,0,0,0,0,0]."""
+        offset = load_offset(REF_FRAME_FILE)
+        if offset is not None and len(offset) == 6:
+            self.robot.setRefFrameOffset(offset)
     
     def update_ref_frame_display(self):
         """Update the ref frame offset display in the panel."""

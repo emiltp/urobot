@@ -8,7 +8,6 @@ the planned rotational trajectory while the TCP z-axis remains compliant.
 
 import time
 import math
-from src.utils import transform_wrench
 from config import defaults as CONFIG
 
 
@@ -79,9 +78,10 @@ def execute(self):
             # Update task frame to current TCP pose (keeps Z-compliance in TCP frame)
             self.rtde_c.forceMode(currentPose, selection_vector, target_wrench, force_type, limits)
             
-            # Read forces in TCP frame
-            tcpWrenchInBase = self.rtde_r.getActualTCPForce()
-            tcpForce = transform_wrench(currentPose, tcpWrenchInBase)
+            # Read forces in TCP frame (wrench at TCP in TCP frame)
+            tcpForce = self.robot.getTcpForceInTcpFrame()
+            if tcpForce is None:
+                tcpForce = [0.0] * 6
             torqueMagnitudeZ = abs(tcpForce[5])
             forceZTcp = tcpForce[2]
             

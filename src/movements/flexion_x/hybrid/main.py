@@ -9,7 +9,7 @@ import time
 import math
 import os
 import numpy as np
-from src.utils import axis_angle_to_rotation_matrix, transform_wrench
+from src.utils import axis_angle_to_rotation_matrix
 from config import defaults as CONFIG
 
 
@@ -20,6 +20,7 @@ def execute(self):
     speed = self.kwargs.get('speed', CONFIG.flexion_x.speed)
     accel = self.kwargs.get('accel', CONFIG.flexion_x.acceleration)
     forceLimitY = self.kwargs.get('force_limit_y', CONFIG.flexion_x.force_limit_y)
+    momentLimitX = self.kwargs.get('max_moment', getattr(CONFIG.flexion_x, 'max_moment', 3.0))
     pathFile = self.kwargs.get('path_file', None)
     
     # Force mode parameters
@@ -100,37 +101,45 @@ def execute(self):
             # Update task frame to current TCP pose (keeps Z-compliance in TCP frame)
             self.rtde_c.forceMode(currentPose, selection_vector, target_wrench, force_type, limits)
             
-            # Read forces in TCP frame
-            tcpWrenchInBase = self.rtde_r.getActualTCPForce()
-            tcpForce = transform_wrench(currentPose, tcpWrenchInBase)
-            forceYTcp = tcpForce[1]
+            tcpForce = self.robot.getTcpForceInTcpFrame()
+            if tcpForce is None:
+                tcpForce = [0.0] * 6
+            refWrench = self.robot.getRefFrameForceInRefFrame(self.robot.getRefFrameRelativeTo())
+            if refWrench is None:
+                refWrench = [0.0] * 6
+            forceYRef = refWrench[1]  # Force limit uses Ref frame Fy
             forceZTcp = tcpForce[2]
+            momentXTcp = tcpForce[3]  # Moment limit uses TCP Mx
             forceMagnitude = math.sqrt(tcpForce[0]**2 + tcpForce[1]**2 + tcpForce[2]**2)
             
-            # Build limit display string
-            if direction == 'left':
-                limitDisplay = f"limit: > -{forceLimitY:.2f} N"
-            elif direction == 'right':
-                limitDisplay = f"limit: < {forceLimitY:.2f} N"
-            else:
-                limitDisplay = f"limit: ±{forceLimitY:.2f} N"
-            
-            # Check force limit (Fy in TCP frame)
+            # Check limits: force in Ref frame, moment in TCP frame
             forceExceeded = False
+            momentExceeded = False
             if direction == 'left':
-                if forceYTcp < -forceLimitY:
+                forceLimitDisplay = f"limit: > -{forceLimitY:.2f} N"
+                momentLimitDisplay = f"limit: < {momentLimitX:.2f} Nm"
+                if forceYRef < -forceLimitY:
                     forceExceeded = True
+                if momentLimitX > 0 and momentXTcp > momentLimitX:
+                    momentExceeded = True
             elif direction == 'right':
-                if forceYTcp > forceLimitY:
+                forceLimitDisplay = f"limit: < {forceLimitY:.2f} N"
+                momentLimitDisplay = f"limit: > -{momentLimitX:.2f} Nm"
+                if forceYRef > forceLimitY:
                     forceExceeded = True
+                if momentLimitX > 0 and momentXTcp < -momentLimitX:
+                    momentExceeded = True
             else:
-                if abs(forceYTcp) > forceLimitY:
+                forceLimitDisplay = f"limit: ±{forceLimitY:.2f} N"
+                momentLimitDisplay = f"limit: ±{momentLimitX:.2f} Nm"
+                if abs(forceYRef) > forceLimitY:
                     forceExceeded = True
+                if momentLimitX > 0 and abs(momentXTcp) > momentLimitX:
+                    momentExceeded = True
             
-            if forceExceeded:
-                self.movement_progress.emit(
-                    f"Force threshold exceeded! Fy: {forceYTcp:.3f} N ({limitDisplay}). Stopping movement."
-                )
+            if forceExceeded or momentExceeded:
+                msg = f"Limit exceeded! Fy: {forceYRef:.3f} N ({forceLimitDisplay}), Mx: {momentXTcp:.3f} Nm ({momentLimitDisplay}). Stopping movement."
+                self.movement_progress.emit(msg)
                 try:
                     self.rtde_c.stopL()
                 except Exception:
@@ -149,8 +158,8 @@ def execute(self):
                 # Progress update
                 progress = self.rtde_c.getAsyncOperationProgress()
                 self.movement_progress.emit(
-                    f"Progress: {progress} | Fy: {forceYTcp:.2f} N ({limitDisplay}) | "
-                    f"Fz: {forceZTcp:.3f} N (force-controlled)"
+                    f"Progress: {progress} | Fy: {forceYRef:.2f} N ({forceLimitDisplay}) | "
+                    f"Fz: {forceZTcp:.3f} N (force-controlled) | Mx: {momentXTcp:.2f} Nm ({momentLimitDisplay})"
                 )
             
             time.sleep(0.02)  # 50Hz monitoring loop

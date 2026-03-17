@@ -101,4 +101,51 @@ PARAMETER_TOOLTIPS = {
         "Higher: allows more moment before stop.\n"
         "Lower: stricter limit."
     ),
+    "force_baseline": (
+        "How to handle force sensor baseline. Sensor is always zeroed (required for UR force mode).\n"
+        "Null sensor: Force mode target = 0; stop criteria use raw wrench.\n"
+        "Subtract initial: Capture post-zero residual; force mode target = baseline transformed to current pose.\n"
+        "Compensates residual bias/drift. Stop criteria use delta (current - baseline)."
+    ),
+    "arc_force_max_moment": (
+        "Maximum allowed moment Mx (Nm) around the TCP X axis before the motion stops.\n"
+        "Directional: stop when resistance exceeds this limit in the motion direction.\n"
+        "Higher: allows more moment before stop.\n"
+        "Lower: stricter limit."
+    ),
+    "fy_tolerance": (
+        "Maximum allowed Fy (tangential force in TCP frame, N) before motion stops.\n"
+        "Higher: allows more tangential force before stop.\n"
+        "Lower: stricter limit on tangential force."
+    ),
+    "fx_tolerance": (
+        "Maximum allowed Fx (tangential force in TCP frame, N) before motion stops.\n"
+        "Higher: allows more tangential force before stop.\n"
+        "Lower: stricter limit on tangential force."
+    ),
+    "pos_tolerance": (
+        "Position tolerance (m) for considering the endpoint reached.\n"
+        "Higher: looser reach detection.\n"
+        "Lower: stricter, may never report reached."
+    ),
+    "rot_tolerance": (
+        "Rotation tolerance (rad) for considering the endpoint reached.\n"
+        "Higher: looser reach detection.\n"
+        "Lower: stricter orientation match."
+    ),
+    "timeout": (
+        "Maximum duration (s) before motion stops (prevents infinite loops).\n"
+        "Higher: allows longer motion.\n"
+        "Lower: quicker timeout."
+    ),
+    "waypoint_count": (
+        "Number of waypoints along the nominal arc (servoL/moveL methods).\n"
+        "Higher: denser path, smoother motion.\n"
+        "Lower: fewer waypoints, faster setup."
+    ),
+    "target_distance": (
+        "Target distance (m) between interpolated waypoints along the arc.\n"
+        "Higher: sparser interpolation.\n"
+        "Lower: denser path."
+    ),
 }

@@ -1,4 +1,4 @@
-"""Real-time graphs widget for visualizing robot TCP velocity and cumulative distances."""
+"""Real-time graphs widget for visualizing robot TCP force and Ref frame force."""
 
 import numpy as np
 from collections import deque
@@ -19,26 +19,17 @@ except ImportError:
 
 # Color scheme for the plots
 COLORS = {
-    # Velocity - Translation (warm/cool distinct)
-    'tx': '#FF3333',  # Bright Red
-    'ty': '#33FF33',  # Bright Green
-    'tz': '#3399FF',  # Bright Blue
-    # Velocity - Rotation (orange/purple/cyan)
-    'rx': '#FF9900',  # Orange
-    'ry': '#CC33FF',  # Magenta/Purple
-    'rz': '#00FFFF',  # Cyan
-    # Force (same as translation - warm/cool)
+    # Force (warm/cool distinct)
     'Fx': '#FF2222',  # Red
     'Fy': '#22DD22',  # Green
     'Fz': '#1144FF',  # Blue
-    # Torque (same as rotation)
+    # Torque
     'Tx': '#FF9900',  # Orange
     'Ty': '#CC33FF',  # Magenta/Purple
     'Tz': '#00FFFF',  # Cyan
     # Magnitudes
     'force_mag': '#FFFFFF',   # White
     'torque_mag': '#FFCC00',  # Gold
-    'vel_mag': '#00FF00',     # Bright green
 }
 
 WINDOW_SECONDS_MAX = 30.0  # Maximum rolling window size
@@ -48,7 +39,7 @@ MAX_DISPLAY_POINTS = 500   # Maximum points to display per curve (downsampling)
 
 
 class RealTimeGraphsWidget(QWidget):
-    """Widget displaying real-time velocity and cumulative distance graphs."""
+    """Widget displaying real-time TCP force (TCP frame) and Ref frame force (Ref frame) graphs."""
     
     # Signal emitted when force zeroing button is clicked
     zero_force_requested = pyqtSignal()
@@ -73,15 +64,16 @@ class RealTimeGraphsWidget(QWidget):
         # Data buffers (time, values)
         self._max_samples = int(WINDOW_SECONDS_MAX * 100)  # Assume max 100 Hz sampling
         self._times = deque(maxlen=self._max_samples)
-        self._velocities = {
-            'tx': deque(maxlen=self._max_samples),
-            'ty': deque(maxlen=self._max_samples),
-            'tz': deque(maxlen=self._max_samples),
-            'rx': deque(maxlen=self._max_samples),
-            'ry': deque(maxlen=self._max_samples),
-            'rz': deque(maxlen=self._max_samples),
+        # TCP force in TCP frame [Fx, Fy, Fz, Tx, Ty, Tz]
+        self._tcp_forces = {
+            'Fx': deque(maxlen=self._max_samples),
+            'Fy': deque(maxlen=self._max_samples),
+            'Fz': deque(maxlen=self._max_samples),
+            'Tx': deque(maxlen=self._max_samples),
+            'Ty': deque(maxlen=self._max_samples),
+            'Tz': deque(maxlen=self._max_samples),
         }
-        # Force/torque data [Fx, Fy, Fz, Tx, Ty, Tz]
+        # Ref frame force in Ref frame [Fx, Fy, Fz, Tx, Ty, Tz]
         self._forces = {
             'Fx': deque(maxlen=self._max_samples),
             'Fy': deque(maxlen=self._max_samples),
@@ -90,23 +82,21 @@ class RealTimeGraphsWidget(QWidget):
             'Ty': deque(maxlen=self._max_samples),
             'Tz': deque(maxlen=self._max_samples),
         }
-        # Force magnitudes
-        self._force_magnitudes = {
-            'force': deque(maxlen=self._max_samples),   # sqrt(Fx² + Fy² + Fz²)
-            'torque': deque(maxlen=self._max_samples),  # sqrt(Tx² + Ty² + Tz²)
+        # TCP force magnitudes
+        self._tcp_force_magnitudes = {
+            'force': deque(maxlen=self._max_samples),
+            'torque': deque(maxlen=self._max_samples),
         }
-        # Velocity magnitudes (for stats display)
-        self._velocity_magnitudes = {
-            'trans': deque(maxlen=self._max_samples),  # sqrt(tx² + ty² + tz²)
-            'rot': deque(maxlen=self._max_samples),    # sqrt(rx² + ry² + rz²) * weight
-            'total': deque(maxlen=self._max_samples),  # sqrt(trans² + rot²)
+        # Ref frame force magnitudes
+        self._force_magnitudes = {
+            'force': deque(maxlen=self._max_samples),
+            'torque': deque(maxlen=self._max_samples),
         }
         
         # State tracking
         self._last_pose: Optional[np.ndarray] = None
         self._last_time: Optional[float] = None
         self._start_time: Optional[float] = None
-        self._rotation_weight = 0.1  # Will be updated from TCP offset
         self._selected_window_size = WINDOW_SECONDS_MIN  # Current window size selection
         
         # Performance optimization: track update cycles for less frequent operations
@@ -201,83 +191,66 @@ class RealTimeGraphsWidget(QWidget):
         
         mono_font = QFont("Courier", 11)
         
-        # === Velocity Plot with dual Y-axes ===
-        self._vel_graphics = pg.GraphicsLayoutWidget()
-        self._vel_plot = self._vel_graphics.addPlot(row=0, col=0)
-        self._vel_plot.setLabel('left', 'Linear velocity', units='m/s', color=COLORS['tx'])
-        self._vel_plot.showGrid(x=True, y=True, alpha=0.3)
-        self._vel_plot.setXRange(-WINDOW_SECONDS_MIN, 0, padding=0)
-        self._vel_plot.setYRange(-0.1, 0.1, padding=0)
-        # Disable mouse interaction for better performance
-        self._vel_plot.setMouseEnabled(x=False, y=False)
-        self._vel_plot.hideButtons()
-        self._vel_plot.setClipToView(True)  # Only render visible data
-        self._vel_plot.disableAutoRange()   # We control the range manually
+        # === TCP Force Plot (TCP frame) with dual Y-axes ===
+        self._tcp_force_graphics = pg.GraphicsLayoutWidget()
+        self._tcp_force_plot = self._tcp_force_graphics.addPlot(row=0, col=0)
+        self._tcp_force_plot.setLabel('left', 'Force (TCP frame)', units='N', color=COLORS['Fx'])
+        self._tcp_force_plot.showGrid(x=True, y=True, alpha=0.3)
+        self._tcp_force_plot.setXRange(-WINDOW_SECONDS_MIN, 0, padding=0)
+        self._tcp_force_plot.setYRange(-50, 50, padding=0)
+        self._tcp_force_plot.setMouseEnabled(x=False, y=False)
+        self._tcp_force_plot.hideButtons()
+        self._tcp_force_plot.setClipToView(True)
+        self._tcp_force_plot.disableAutoRange()
         
-        # Left legend for translation (top-left)
-        self._vel_legend_left = self._vel_plot.addLegend(offset=(10, 5), labelTextSize='9pt')
+        self._tcp_force_legend_left = self._tcp_force_plot.addLegend(offset=(10, 5), labelTextSize='9pt')
         
-        # Create secondary Y-axis for rotation (right side)
-        self._vel_viewbox_rot = pg.ViewBox()
-        self._vel_plot.scene().addItem(self._vel_viewbox_rot)
-        self._vel_plot.getAxis('right').linkToView(self._vel_viewbox_rot)
-        self._vel_viewbox_rot.setXLink(self._vel_plot)
-        self._vel_viewbox_rot.disableAutoRange()  # Manual Y-range control
-        self._vel_viewbox_rot.setYRange(-0.1, 0.1)  # Initial range
-        self._vel_plot.getAxis('right').setLabel('Angular velocity', units='rad/s', color=COLORS['rx'])
-        self._vel_plot.showAxis('right')
+        self._tcp_force_viewbox_torque = pg.ViewBox()
+        self._tcp_force_plot.scene().addItem(self._tcp_force_viewbox_torque)
+        self._tcp_force_plot.getAxis('right').linkToView(self._tcp_force_viewbox_torque)
+        self._tcp_force_viewbox_torque.setXLink(self._tcp_force_plot)
+        self._tcp_force_viewbox_torque.disableAutoRange()
+        self._tcp_force_viewbox_torque.setYRange(-1, 1)
+        self._tcp_force_plot.getAxis('right').setLabel('Torque (TCP frame)', units='Nm', color=COLORS['Tx'])
+        self._tcp_force_plot.showAxis('right')
         
-        # Right legend for rotation (inside plot, top-right area)
-        self._vel_legend_right = pg.LegendItem(labelTextSize='9pt')
-        self._vel_legend_right.setParentItem(self._vel_plot.vb)
-        self._vel_legend_right.anchor((1, 0), (1, 0), offset=(-5, 5))
+        self._tcp_force_legend_right = pg.LegendItem(labelTextSize='9pt')
+        self._tcp_force_legend_right.setParentItem(self._tcp_force_plot.vb)
+        self._tcp_force_legend_right.anchor((1, 0), (1, 0), offset=(-5, 5))
         
-        # Velocity curves - translation on left axis
-        self._vel_curves = {}
-        for key, color in [('tx', COLORS['tx']), ('ty', COLORS['ty']), ('tz', COLORS['tz'])]:
-            self._vel_curves[key] = self._vel_plot.plot(
+        self._tcp_force_curves = {}
+        for key, color in [('Fx', COLORS['Fx']), ('Fy', COLORS['Fy']), ('Fz', COLORS['Fz'])]:
+            self._tcp_force_curves[key] = self._tcp_force_plot.plot(
                 [], [], pen=pg.mkPen(color, width=self._line_width), name=key
             )
-        
-        # Velocity curves - rotation on right axis (add to right legend)
-        for key, color in [('rx', COLORS['rx']), ('ry', COLORS['ry']), ('rz', COLORS['rz'])]:
+        for key, color in [('Tx', COLORS['Tx']), ('Ty', COLORS['Ty']), ('Tz', COLORS['Tz'])]:
             curve = pg.PlotCurveItem([], [], pen=pg.mkPen(color, width=self._line_width), name=key)
-            self._vel_viewbox_rot.addItem(curve)
-            self._vel_curves[key] = curve
-            self._vel_legend_right.addItem(curve, key)
+            self._tcp_force_viewbox_torque.addItem(curve)
+            self._tcp_force_curves[key] = curve
+            self._tcp_force_legend_right.addItem(curve, key)
         
-        # Connect viewbox resize
-        self._vel_plot.vb.sigResized.connect(self._update_vel_viewbox)
+        self._tcp_force_plot.vb.sigResized.connect(self._update_tcp_force_viewbox)
+        self._tcp_force_graphics.setToolTip("Wrench at TCP in TCP frame coordinates")
+        layout.addWidget(self._tcp_force_graphics, stretch=1)
         
-        layout.addWidget(self._vel_graphics, stretch=1)  # Expand to fill
-        
-        # Velocity stats (under velocity graph)
-        vel_stats_frame = QFrame()
-        vel_stats_frame.setStyleSheet("background: #252F3A; border-radius: 3px;")
-        vel_stats_frame.setMaximumHeight(32)
-        vel_stats_layout = QHBoxLayout(vel_stats_frame)
-        vel_stats_layout.setContentsMargins(6, 2, 6, 2)
-        vel_stats_layout.setSpacing(12)
-        
-        vel_stats_layout.addStretch()
-        
-        self._trans_vel_label = QLabel("|T|: 0.0 mm/s")
-        self._trans_vel_label.setFont(mono_font)
-        self._trans_vel_label.setStyleSheet(f"color: {COLORS['tx']};")
-        vel_stats_layout.addWidget(self._trans_vel_label)
-        
-        self._rot_vel_label = QLabel("|R|: 0.0 rad/s")
-        self._rot_vel_label.setFont(mono_font)
-        self._rot_vel_label.setStyleSheet(f"color: {COLORS['rx']};")
-        vel_stats_layout.addWidget(self._rot_vel_label)
-        
-        self._total_vel_label = QLabel("|∑|: 0.0 mm/s")
-        self._total_vel_label.setFont(mono_font)
-        self._total_vel_label.setStyleSheet(f"color: {COLORS['vel_mag']};")
-        vel_stats_layout.addWidget(self._total_vel_label)
-        
-        vel_stats_layout.addStretch()
-        layout.addWidget(vel_stats_frame)
+        # TCP force stats
+        tcp_force_stats_frame = QFrame()
+        tcp_force_stats_frame.setStyleSheet("background: #252F3A; border-radius: 3px;")
+        tcp_force_stats_frame.setMaximumHeight(32)
+        tcp_force_stats_layout = QHBoxLayout(tcp_force_stats_frame)
+        tcp_force_stats_layout.setContentsMargins(6, 2, 6, 2)
+        tcp_force_stats_layout.setSpacing(12)
+        tcp_force_stats_layout.addStretch()
+        self._tcp_force_label = QLabel("|F|: 0.0 N")
+        self._tcp_force_label.setFont(mono_font)
+        self._tcp_force_label.setStyleSheet(f"color: {COLORS['Fx']};")
+        tcp_force_stats_layout.addWidget(self._tcp_force_label)
+        self._tcp_torque_label = QLabel("|τ|: 0.0 Nm")
+        self._tcp_torque_label.setFont(mono_font)
+        self._tcp_torque_label.setStyleSheet(f"color: {COLORS['Tx']};")
+        tcp_force_stats_layout.addWidget(self._tcp_torque_label)
+        tcp_force_stats_layout.addStretch()
+        layout.addWidget(tcp_force_stats_frame)
         
         # Vertical spacing between graphs
         layout.addSpacing(8)
@@ -285,7 +258,7 @@ class RealTimeGraphsWidget(QWidget):
         # === TCP Force Plot with dual Y-axes ===
         self._force_graphics = pg.GraphicsLayoutWidget()
         self._force_plot = self._force_graphics.addPlot(row=0, col=0)
-        self._force_plot.setLabel('left', 'Force', units='N', color=COLORS['Fx'])
+        self._force_plot.setLabel('left', 'Force (Ref frame)', units='N', color=COLORS['Fx'])
         self._force_plot.showGrid(x=True, y=True, alpha=0.3)
         self._force_plot.setXRange(-WINDOW_SECONDS_MIN, 0, padding=0)
         self._force_plot.setYRange(-50, 50, padding=0)
@@ -305,7 +278,7 @@ class RealTimeGraphsWidget(QWidget):
         self._force_viewbox_torque.setXLink(self._force_plot)
         self._force_viewbox_torque.disableAutoRange()  # Manual Y-range control
         self._force_viewbox_torque.setYRange(-1, 1)  # Initial range
-        self._force_plot.getAxis('right').setLabel('Torque', units='Nm', color=COLORS['Tx'])
+        self._force_plot.getAxis('right').setLabel('Torque (Ref frame)', units='Nm', color=COLORS['Tx'])
         self._force_plot.showAxis('right')
         
         # Right legend for torque (inside plot, top-right area)
@@ -330,6 +303,7 @@ class RealTimeGraphsWidget(QWidget):
         # Connect viewbox resize
         self._force_plot.vb.sigResized.connect(self._update_force_viewbox)
         
+        self._force_graphics.setToolTip("Wrench at Ref frame in Ref frame coordinates")
         layout.addWidget(self._force_graphics, stretch=1)  # Expand to fill
         
         # Force stats (under force graph)
@@ -358,9 +332,9 @@ class RealTimeGraphsWidget(QWidget):
         # Add group box to main layout
         main_layout.addWidget(group_box)
     
-    def _update_vel_viewbox(self):
-        """Update the rotation viewbox geometry to match the velocity plot."""
-        self._vel_viewbox_rot.setGeometry(self._vel_plot.vb.sceneBoundingRect())
+    def _update_tcp_force_viewbox(self):
+        """Update the torque viewbox geometry to match the TCP force plot."""
+        self._tcp_force_viewbox_torque.setGeometry(self._tcp_force_plot.vb.sceneBoundingRect())
     
     def _update_force_viewbox(self):
         """Update the torque viewbox geometry to match the force plot."""
@@ -380,7 +354,7 @@ class RealTimeGraphsWidget(QWidget):
         self._line_width = value
         # Update all curve pen widths
         if PYQTGRAPH_AVAILABLE:
-            for key, curve in self._vel_curves.items():
+            for key, curve in self._tcp_force_curves.items():
                 color = COLORS[key]
                 curve.setPen(pg.mkPen(color, width=value))
             for key, curve in self._force_curves.items():
@@ -404,17 +378,16 @@ class RealTimeGraphsWidget(QWidget):
         """Handle force zeroing button click."""
         self.zero_force_requested.emit()
     
-    def set_rotation_weight(self, weight: float):
-        """Set the rotation weight (typically TCP offset magnitude)."""
-        self._rotation_weight = max(weight, 0.01)
-    
-    def update_pose(self, tcp_pose: Tuple[float, ...], flange_pose: Optional[Tuple[float, ...]] = None, tcp_force: Optional[Tuple[float, ...]] = None):
+    def update_pose(self, tcp_pose: Tuple[float, ...], flange_pose: Optional[Tuple[float, ...]] = None,
+                    tcp_force_in_tcp_frame: Optional[Tuple[float, ...]] = None,
+                    ref_frame_force: Optional[Tuple[float, ...]] = None):
         """Update with new pose and force data.
         
         Args:
             tcp_pose: TCP pose [x, y, z, rx, ry, rz]
             flange_pose: Flange pose (optional)
-            tcp_force: TCP force/torque [Fx, Fy, Fz, Tx, Ty, Tz] (optional)
+            tcp_force_in_tcp_frame: Wrench at TCP in TCP frame [Fx, Fy, Fz, Tx, Ty, Tz] (optional)
+            ref_frame_force: Wrench at Ref frame in Ref frame [Fx, Fy, Fz, Tx, Ty, Tz] (optional)
         """
         if not PYQTGRAPH_AVAILABLE:
             return
@@ -433,39 +406,30 @@ class RealTimeGraphsWidget(QWidget):
         
         if self._last_pose is not None and self._last_time is not None:
             dt = current_time - self._last_time
-            if dt > 0.001:  # Avoid division by very small dt
-                # Calculate velocities (per component)
-                diff = pose - self._last_pose
-                velocities = diff / dt
-                
-                # Store velocities
+            if dt > 0.001:
                 self._times.append(relative_time)
-                for i, key in enumerate(['tx', 'ty', 'tz', 'rx', 'ry', 'rz']):
-                    self._velocities[key].append(velocities[i])
                 
-                # Calculate velocity magnitudes
-                trans_speed = np.sqrt(np.sum(velocities[:3]**2))
-                rot_speed = np.sqrt(np.sum(velocities[3:]**2))
-                # Weighted total for combined metric
-                weighted_rot = rot_speed * self._rotation_weight
-                total_vel = np.sqrt(trans_speed**2 + weighted_rot**2)
-                self._velocity_magnitudes['trans'].append(trans_speed)
-                self._velocity_magnitudes['rot'].append(rot_speed)
-                self._velocity_magnitudes['total'].append(total_vel)
-                
-                # Store force/torque data
-                if tcp_force is not None and len(tcp_force) >= 6:
-                    force = np.array(tcp_force)
+                # Store TCP force in TCP frame
+                if tcp_force_in_tcp_frame is not None and len(tcp_force_in_tcp_frame) >= 6:
+                    tcp_f = np.array(tcp_force_in_tcp_frame)
                     for i, key in enumerate(['Fx', 'Fy', 'Fz', 'Tx', 'Ty', 'Tz']):
-                        self._forces[key].append(force[i])
-                    
-                    # Calculate force magnitudes
-                    force_mag = np.sqrt(np.sum(force[:3]**2))
-                    torque_mag = np.sqrt(np.sum(force[3:]**2))
-                    self._force_magnitudes['force'].append(force_mag)
-                    self._force_magnitudes['torque'].append(torque_mag)
+                        self._tcp_forces[key].append(tcp_f[i])
+                    self._tcp_force_magnitudes['force'].append(np.sqrt(np.sum(tcp_f[:3]**2)))
+                    self._tcp_force_magnitudes['torque'].append(np.sqrt(np.sum(tcp_f[3:]**2)))
                 else:
-                    # No force data - append zeros
+                    for key in self._tcp_forces:
+                        self._tcp_forces[key].append(0.0)
+                    self._tcp_force_magnitudes['force'].append(0.0)
+                    self._tcp_force_magnitudes['torque'].append(0.0)
+                
+                # Store Ref frame force
+                if ref_frame_force is not None and len(ref_frame_force) >= 6:
+                    ref_f = np.array(ref_frame_force)
+                    for i, key in enumerate(['Fx', 'Fy', 'Fz', 'Tx', 'Ty', 'Tz']):
+                        self._forces[key].append(ref_f[i])
+                    self._force_magnitudes['force'].append(np.sqrt(np.sum(ref_f[:3]**2)))
+                    self._force_magnitudes['torque'].append(np.sqrt(np.sum(ref_f[3:]**2)))
+                else:
                     for key in self._forces:
                         self._forces[key].append(0.0)
                     self._force_magnitudes['force'].append(0.0)
@@ -476,7 +440,7 @@ class RealTimeGraphsWidget(QWidget):
     
     def _update_plots(self):
         """Update the plot displays (called by timer)."""
-        if not PYQTGRAPH_AVAILABLE or len(self._times) < 2:
+        if not PYQTGRAPH_AVAILABLE or len(self._times) < 1:
             return
         
         # Skip updates if widget is not visible (major performance gain)
@@ -496,7 +460,6 @@ class RealTimeGraphsWidget(QWidget):
         # Downsample data if too many points for better performance
         n_points = len(times)
         if n_points > MAX_DISPLAY_POINTS:
-            # Use strided indexing for efficient downsampling
             step = n_points // MAX_DISPLAY_POINTS
             indices = slice(None, None, step)
             display_times = relative_times[indices]
@@ -504,13 +467,13 @@ class RealTimeGraphsWidget(QWidget):
             indices = slice(None)
             display_times = relative_times
         
-        # Update velocity curves with downsampled data
-        for key, curve in self._vel_curves.items():
-            if len(self._velocities[key]) > 0:
-                data = np.array(self._velocities[key])[indices]
+        # Update TCP force curves
+        for key, curve in self._tcp_force_curves.items():
+            if len(self._tcp_forces[key]) > 0:
+                data = np.array(self._tcp_forces[key])[indices]
                 curve.setData(display_times, data, skipFiniteCheck=True)
         
-        # Update force curves with downsampled data
+        # Update Ref frame force curves
         for key, curve in self._force_curves.items():
             if len(self._forces[key]) > 0:
                 data = np.array(self._forces[key])[indices]
@@ -518,73 +481,57 @@ class RealTimeGraphsWidget(QWidget):
         
         # Use the user-selected window size (fixed, not growing)
         window_size = self._selected_window_size
-        self._vel_plot.setXRange(-window_size, 0, padding=0)
+        self._tcp_force_plot.setXRange(-window_size, 0, padding=0)
         self._force_plot.setXRange(-window_size, 0, padding=0)
         
         # Auto-scale Y axes less frequently for better performance
         if self._update_cycle % self._autoscale_interval == 0:
             self._autoscale_y_axes()
         
-        # Update stats labels (lightweight operation)
-        if len(self._velocity_magnitudes['total']) > 0:
-            trans_vel = self._velocity_magnitudes['trans'][-1] * 1000  # m/s to mm/s
-            rot_vel = self._velocity_magnitudes['rot'][-1]  # rad/s
-            total_vel = self._velocity_magnitudes['total'][-1] * 1000  # m/s to mm/s
-            self._trans_vel_label.setText(f"|T|: {trans_vel:.1f} mm/s")
-            self._rot_vel_label.setText(f"|R|: {rot_vel:.2f} rad/s")
-            self._total_vel_label.setText(f"|∑|: {total_vel:.1f} mm/s")
+        # Update TCP force stats
+        if len(self._tcp_force_magnitudes['force']) > 0:
+            self._tcp_force_label.setText(f"|F|: {self._tcp_force_magnitudes['force'][-1]:.1f} N")
+            self._tcp_torque_label.setText(f"|τ|: {self._tcp_force_magnitudes['torque'][-1]:.2f} Nm")
         
+        # Update Ref frame force stats
         if len(self._force_magnitudes['force']) > 0:
-            force_mag = self._force_magnitudes['force'][-1]
-            torque_mag = self._force_magnitudes['torque'][-1]
-            self._force_label.setText(f"|F|: {force_mag:.1f} N")
-            self._torque_label.setText(f"|τ|: {torque_mag:.2f} Nm")
+            self._force_label.setText(f"|F|: {self._force_magnitudes['force'][-1]:.1f} N")
+            self._torque_label.setText(f"|τ|: {self._force_magnitudes['torque'][-1]:.2f} Nm")
     
     def _autoscale_y_axes(self):
         """Auto-scale Y axes for all plots based on visible window + 5s buffer."""
         if len(self._times) == 0:
             return
         
-        # Get time range for visible window + 5 second buffer
         times = np.array(self._times)
         current_time = times[-1] if len(times) > 0 else 0
-        # Time is displayed relative to current (0 = now, negative = past)
-        # Visible window is from -window_size to 0, plus 5s buffer
         window_with_buffer = self._selected_window_size + 5.0
         min_time = current_time - window_with_buffer
-        
-        # Create mask for data within the time window
         mask = times >= min_time
         
-        # Auto-scale Y axes for velocity (left: translation, right: rotation)
-        if len(self._velocities['tx']) > 0:
-            # Translation (left axis) - only data in visible window + buffer
-            trans_data = np.concatenate([
-                np.array(self._velocities[key])[mask] for key in ['tx', 'ty', 'tz']
+        # Auto-scale TCP force plot (left: force, right: torque)
+        if len(self._tcp_forces['Fx']) > 0:
+            force_data = np.concatenate([
+                np.array(self._tcp_forces[key])[mask] for key in ['Fx', 'Fy', 'Fz']
             ])
-            if len(trans_data) > 0:
-                max_trans = max(np.abs(trans_data).max(), 0.01)
-                self._vel_plot.setYRange(-max_trans * 1.2, max_trans * 1.2, padding=0)
-            
-            # Rotation (right axis)
-            rot_data = np.concatenate([
-                np.array(self._velocities[key])[mask] for key in ['rx', 'ry', 'rz']
+            if len(force_data) > 0:
+                max_force = max(np.abs(force_data).max(), 1.0)
+                self._tcp_force_plot.setYRange(-max_force * 1.2, max_force * 1.2, padding=0)
+            torque_data = np.concatenate([
+                np.array(self._tcp_forces[key])[mask] for key in ['Tx', 'Ty', 'Tz']
             ])
-            if len(rot_data) > 0:
-                max_rot = max(np.abs(rot_data).max(), 0.01)
-                self._vel_viewbox_rot.setYRange(-max_rot * 1.2, max_rot * 1.2)
+            if len(torque_data) > 0:
+                max_torque = max(np.abs(torque_data).max(), 0.1)
+                self._tcp_force_viewbox_torque.setYRange(-max_torque * 1.2, max_torque * 1.2)
         
-        # Auto-scale Y axes for force (left: force, right: torque)
+        # Auto-scale Ref frame force plot (left: force, right: torque)
         if len(self._forces['Fx']) > 0:
-            # Force (left axis)
             force_data = np.concatenate([
                 np.array(self._forces[key])[mask] for key in ['Fx', 'Fy', 'Fz']
             ])
             if len(force_data) > 0:
                 max_force = max(np.abs(force_data).max(), 1.0)
                 self._force_plot.setYRange(-max_force * 1.2, max_force * 1.2, padding=0)
-            
-            # Torque (right axis)
             torque_data = np.concatenate([
                 np.array(self._forces[key])[mask] for key in ['Tx', 'Ty', 'Tz']
             ])
@@ -595,14 +542,14 @@ class RealTimeGraphsWidget(QWidget):
     def reset(self):
         """Reset all data."""
         self._times.clear()
-        for key in self._velocities:
-            self._velocities[key].clear()
+        for key in self._tcp_forces:
+            self._tcp_forces[key].clear()
         for key in self._forces:
             self._forces[key].clear()
+        for key in self._tcp_force_magnitudes:
+            self._tcp_force_magnitudes[key].clear()
         for key in self._force_magnitudes:
             self._force_magnitudes[key].clear()
-        for key in self._velocity_magnitudes:
-            self._velocity_magnitudes[key].clear()
         
         self._last_pose = None
         self._last_time = None
@@ -610,16 +557,12 @@ class RealTimeGraphsWidget(QWidget):
         
         # Clear curves
         if PYQTGRAPH_AVAILABLE:
-            for curve in self._vel_curves.values():
+            for curve in self._tcp_force_curves.values():
                 curve.setData([], [])
             for curve in self._force_curves.values():
                 curve.setData([], [])
-            
-            # Reset velocity stats
-            self._trans_vel_label.setText("|T|: 0.0 mm/s")
-            self._rot_vel_label.setText("|R|: 0.0 rad/s")
-            self._total_vel_label.setText("|∑|: 0.0 mm/s")
-            # Reset force stats
+            self._tcp_force_label.setText("|F|: 0.0 N")
+            self._tcp_torque_label.setText("|τ|: 0.0 Nm")
             self._force_label.setText("|F|: 0.0 N")
             self._torque_label.setText("|τ|: 0.0 Nm")
     

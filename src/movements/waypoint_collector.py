@@ -1512,11 +1512,9 @@ class WaypointCollector:
             direction: 'left' or 'right' for direction-dependent sign checks
         """
         try:
-            from src.utils import transform_wrench
-            
-            tcpWrench = self.rtde_r.getActualTCPForce()
-            tcpPose = list(self.rtde_r.getActualTCPPose())
-            tcpForce = transform_wrench(tcpPose, tcpWrench)
+            tcpForce = self.robot.getTcpForceInTcpFrame()
+            if tcpForce is None:
+                tcpForce = [0.0] * 6
             
             if forceAxis == 'mz':
                 forceValue = tcpForce[5]

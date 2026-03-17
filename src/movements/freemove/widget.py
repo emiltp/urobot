@@ -47,7 +47,7 @@ class FreemoveWidget(QWidget):
         layout.setSpacing(8)
         
         # === Traverse Parameters ===
-        self.traverse_group = CollapsibleGroupBox("Traverse Parameters (moveLPath)", expanded=True)
+        self.traverse_group = CollapsibleGroupBox("Traverse Parameters (moveLPath)", expanded=False)
         
         # Traverse method selector - FIRST
         method_row = QHBoxLayout()

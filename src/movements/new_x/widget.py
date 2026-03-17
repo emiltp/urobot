@@ -67,7 +67,7 @@ class NewXWidget(QWidget):
         
         self.left_arrow = ArrowButton("left", label="FRONT")
         self.left_arrow.setFixedSize(80, 55)
-        self.circle = CircleWidget(top_label="LEFT", bottom_label="RIGHT")
+        self.circle = CircleWidget(top_label="RIGHT", bottom_label="LEFT")
         self.circle.setFixedSize(50, 70)
         self.right_arrow = ArrowButton("right", label="BACK")
         self.right_arrow.setFixedSize(80, 55)
@@ -305,7 +305,7 @@ class NewXWidget(QWidget):
         layout.addWidget(self.force_params_group)
         
         # ── Traverse Parameters ──────────────────────────────
-        self.replay_group = CollapsibleGroupBox("Traverse Parameters (servoPath)", expanded=True)
+        self.replay_group = CollapsibleGroupBox("Traverse Parameters (servoPath)", expanded=False)
         
         method_layout = QHBoxLayout()
         method_layout.addWidget(QLabel("Method:"))

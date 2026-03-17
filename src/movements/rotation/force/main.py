@@ -9,7 +9,7 @@ positional axes float freely, providing maximum reactivity and smooth motion.
 import time
 import numpy as np
 from scipy.spatial.transform import Rotation
-from src.utils import axis_angle_to_rotation_matrix, transform_wrench
+from src.utils import axis_angle_to_rotation_matrix
 from config import defaults as CONFIG
 
 
@@ -86,10 +86,11 @@ def execute(self):
                 break
 
             # =====================================================
-            # FORCE / TORQUE MONITORING
+            # FORCE / TORQUE MONITORING (wrench at TCP in TCP frame)
             # =====================================================
-            tcpWrenchInBase = self.rtde_r.getActualTCPForce()
-            tcpForce = transform_wrench(currentPose, tcpWrenchInBase)
+            tcpForce = self.robot.getTcpForceInTcpFrame()
+            if tcpForce is None:
+                tcpForce = [0.0] * 6
             torqueMagnitudeZ = abs(tcpForce[5])
             forceXTcp = tcpForce[0]
             forceYTcp = tcpForce[1]

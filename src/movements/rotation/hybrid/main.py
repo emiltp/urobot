@@ -7,7 +7,6 @@ float freely so the tool maintains zero contact force in every direction.
 """
 
 import time
-from src.utils import transform_wrench
 from config import defaults as CONFIG
 
 
@@ -74,8 +73,9 @@ def execute(self):
             # Update task frame so compliance stays in TCP frame
             self.rtde_c.forceMode(currentPose, selection_vector, target_wrench, force_type, limits)
 
-            tcpWrenchInBase = self.rtde_r.getActualTCPForce()
-            tcpForce = transform_wrench(currentPose, tcpWrenchInBase)
+            tcpForce = self.robot.getTcpForceInTcpFrame()
+            if tcpForce is None:
+                tcpForce = [0.0] * 6
             torqueMagnitudeZ = abs(tcpForce[5])
             forceXTcp = tcpForce[0]
             forceYTcp = tcpForce[1]

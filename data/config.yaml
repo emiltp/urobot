@@ -15,10 +15,16 @@ robot:
   ip: "192.168.1.100"                        # Robot IP address on the network
   # Default home position [x, y, z, rx, ry, rz] in metres / radians.
   # Updated automatically when you "Set current as home" from the UI.
-  home_position: [0.161, -0.7845, 0.1083, 2.1987, 2.0544, -0.0763]
+  home_position: [0.3769, -0.9978, 0.1021, -3.1302, 0.0912, 0.0515]
   # TCP offset [x, y, z, rx, ry, rz] — applied on connect.
   # Updated automatically when you "Hardcode current TCP as default" from the UI.
   tcp_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  # Zero Force TCP gravity compensation: mass (kg) and CoG [x,y,z] in flange frame (m).
+  # Set when robot payload is not configured — enables pose-independent force zeroing.
+  # Example: if Fz ≈ -37 N at rest, mass ≈ 37/9.81 ≈ 3.8 kg. CoG: offset from flange.
+  payload:
+    mass: 6.1451                             # kg (0 = use robot payload or stored-bias fallback)
+    cog: [-0.16111, 0.01238, 0.09985]       # [x,y,z] in flange frame; adjust to match your tool
 
 # ---------------------------------------------------------------------------
 # Go to home — speed/accel for direct move and waypoint retrace
@@ -50,6 +56,7 @@ flexion_x:
   speed: 0.01                               # Collection movement speed (m/s)
   acceleration: 0.05                         # Collection acceleration (m/s^2)
   force_limit_y: 10.0                        # Fy safety limit in TCP frame (N)
+  max_moment: 3.0                            # Max moment Mx before stop (Nm)
 
 flexion_x_original:
   force_control_gain: 0.002                  # Z adjustment per unit Fz (m/N)
@@ -77,6 +84,7 @@ flexion_y:
   speed: 0.01                               # Collection movement speed (m/s)
   acceleration: 0.05                         # Collection acceleration (m/s^2)
   force_limit_x: 10.0                        # Fx safety limit in TCP frame (N)
+  max_moment: 3.0                            # Max moment My before stop (Nm)
 
 flexion_y_original:
   force_control_gain: 0.002                  # Z adjustment per unit Fz (m/N)
@@ -270,3 +278,74 @@ traverse_servopath:
 traverse_movepath:
   speed: 0.03                                # Traverse speed (m/s)
   acceleration: 0.5                          # Traverse acceleration (m/s^2)
+
+# ---------------------------------------------------------------------------
+# Arc (Fz-constrained) — orbit around ref frame with constant TCP Fz
+# ---------------------------------------------------------------------------
+arc_force:
+  angle: 90.0                                # Rotation angle around ref axis (deg)
+  speed: 0.01                               # Movement speed (m/s)
+  acceleration: 0.1                          # Movement acceleration (m/s^2)
+  max_moment: 3.0                            # Max moment before stop (Nm)
+  force_baseline: "null"                     # "null" = zeroFtSensor, "subtract_initial" = store & subtract
+  force_mode_z_limit: 0.05                   # Max Z velocity for compliance (m/s)
+  force_mode_damping: 0.1                    # Force mode damping factor (0-1)
+  force_mode_gain_scaling: 1.0               # Force mode gain scaling (0-2)
+  timeout: 60.0                              # Max duration before stop (s)
+  fy_tolerance: 5.0                            # Fy (tangential) before stop (N)
+  pos_tolerance: 0.002                       # Position reach tolerance (m)
+  rot_tolerance: 0.02                        # Rotation reach tolerance (rad)
+  waypoint_count: 50                         # Waypoints for servoL/moveL (servoL/movel only)
+  target_distance: 0.002                     # Interpolation target distance (m) for waypoints
+
+# ---------------------------------------------------------------------------
+# Arc (x) — moveL around ref X, Fz=0, Mx/Fy limits, null sensing
+# ---------------------------------------------------------------------------
+arc_x:
+  angle: 90.0                                # Rotation angle around ref X (deg)
+  speed: 0.01                                # Movement speed (m/s)
+  acceleration: 0.1                          # Movement acceleration (m/s^2)
+  max_moment: 3.0                            # Max moment Mx before stop (Nm)
+  force_mode_z_limit: 0.05                   # Max Z velocity for compliance (m/s)
+  force_mode_damping: 0.1                    # Force mode damping factor (0-1)
+  force_mode_gain_scaling: 1.0               # Force mode gain scaling (0-2)
+  fy_tolerance: 10.0                          # Fy (tangential) before stop (N)
+  pos_tolerance: 0.002                       # Position reach tolerance (m)
+  rot_tolerance: 0.02                        # Rotation reach tolerance (rad)
+  waypoint_count: 50                         # Waypoints for moveL path
+  target_distance: 0.002                     # Interpolation target distance (m) for waypoints
+
+# ---------------------------------------------------------------------------
+# Arc (y) — moveL around ref Y, Fz=0, Fx/My limits, null sensing
+# ---------------------------------------------------------------------------
+arc_y:
+  angle: 90.0                                # Rotation angle around ref Y (deg)
+  speed: 0.01                                # Movement speed (m/s)
+  acceleration: 0.1                          # Movement acceleration (m/s^2)
+  max_moment: 3.0                            # Max moment My before stop (Nm)
+  force_mode_z_limit: 0.05                   # Max Z velocity for compliance (m/s)
+  force_mode_xz_limit: 0.05                  # Max XZ velocity for in-plane compliance (m/s)
+  force_mode_damping: 0.1                    # Force mode damping factor (0-1)
+  force_mode_gain_scaling: 1.0               # Force mode gain scaling (0-2)
+  fx_tolerance: 10.0                          # Fx (tangential) before stop (N)
+  pos_tolerance: 0.002                       # Position reach tolerance (m)
+  rot_tolerance: 0.02                        # Rotation reach tolerance (rad)
+  waypoint_count: 50                         # Waypoints for moveL path
+  target_distance: 0.002                     # Interpolation target distance (m) for waypoints
+
+# ---------------------------------------------------------------------------
+# Arc (z) — moveL around ref Z, Mz limit only, Fz + XY plane freedom (like New z)
+# ---------------------------------------------------------------------------
+arc_z:
+  angle: 90.0                                # Rotation angle around ref Z (deg)
+  speed: 0.01                                # Movement speed (m/s)
+  acceleration: 0.1                          # Movement acceleration (m/s^2)
+  max_moment: 3.0                            # Max moment Mz before stop (Nm)
+  force_mode_z_limit: 0.05                   # Max Z velocity for compliance (m/s)
+  force_mode_xy_limit: 0.05                  # Max XY velocity for plane freedom (m/s)
+  force_mode_damping: 0.1                    # Force mode damping factor (0-1)
+  force_mode_gain_scaling: 1.0               # Force mode gain scaling (0-2)
+  pos_tolerance: 0.002                       # Position reach tolerance (m)
+  rot_tolerance: 0.02                        # Rotation reach tolerance (rad)
+  waypoint_count: 50                         # Waypoints for moveL path
+  target_distance: 0.002                     # Interpolation target distance (m) for waypoints

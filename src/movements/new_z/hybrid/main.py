@@ -10,7 +10,7 @@ import time
 import math
 import os
 import numpy as np
-from src.utils import axis_angle_to_rotation_matrix, transform_wrench
+from src.utils import axis_angle_to_rotation_matrix
 from config import defaults as CONFIG
 
 
@@ -81,8 +81,9 @@ def execute(self):
             currentPose = list(self.rtde_r.getActualTCPPose())
             self.rtde_c.forceMode(currentPose, selection_vector, target_wrench, force_type, limits)
 
-            tcpWrenchInBase = self.rtde_r.getActualTCPForce()
-            tcpForce = transform_wrench(currentPose, tcpWrenchInBase)
+            tcpForce = self.robot.getTcpForceInTcpFrame()
+            if tcpForce is None:
+                tcpForce = [0.0] * 6
             forceXTcp = tcpForce[0]
             forceYTcp = tcpForce[1]
             forceZTcp = tcpForce[2]
