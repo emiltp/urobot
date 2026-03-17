@@ -1,0 +1,5 @@
+# Development dependencies (install in conda env ur-test)
+# conda activate ur-test
+# pip install -r requirements-dev.txt
+
+pytest>=7.0
