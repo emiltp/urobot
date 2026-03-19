@@ -161,13 +161,14 @@ class AsyncMotionRunner(QThread):
     
     def _runTraverseMode(self, forward=None, backward=None, collector=None):
         """Smoothly traverse a recorded path with optional motion logging and auto-return."""
-        
+        success = True  # Default when neither forward nor backward runs
+
         # Load waypoints from file or use provided arrays
         collector = collector or WaypointCollector.load(self, self.kwargs.get('path_file'))
         if collector is None:
             self.movement_completed.emit(False, f"Could not load waypoints from {self.kwargs.get('path_file')}")
             return
-        
+
         autoReturn = self.kwargs.get('autoReturn', False)
         willBackward = backward or autoReturn
 

@@ -35,8 +35,8 @@ def load_offset(path: str) -> list:
     if not os.path.exists(path):
         return None
     try:
-        data = np.load(path)
-        return list(data['offset'])
+        with np.load(path) as data:
+            return list(data['offset'])
     except Exception as e:
         print(f"Warning: Could not load offset from {path}: {e}")
         return None

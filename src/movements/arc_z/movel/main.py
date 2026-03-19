@@ -20,6 +20,18 @@ def execute(self):
     ref_pose = self.kwargs.get('ref_pose')
     end_pose = self.kwargs.get('end_pose')
     angle_rad = self.kwargs.get('angle_rad')
+    if start_position is None:
+        self.movement_progress.emit("Error: start_position is required")
+        return
+    if ref_pose is None:
+        self.movement_progress.emit("Error: ref_pose is required")
+        return
+    if end_pose is None:
+        self.movement_progress.emit("Error: end_pose is required")
+        return
+    if angle_rad is None:
+        self.movement_progress.emit("Error: angle_rad is required")
+        return
     axis = self.kwargs.get('axis', 'z')
     direction_multiplier = self.kwargs.get('direction_multiplier', 1)
     speed = self.kwargs.get('speed', _arc_z_cfg.speed)
@@ -71,8 +83,10 @@ def execute(self):
         self.rtde_c.forceModeSetGainScaling(force_mode_gain_scaling)
 
         initial_pose = list(self.rtde_r.getActualTCPPose())
+        tcp_offset = self.robot.getTcpOffset() if self.robot else None
+        flange_pose_init = self.robot._calculateFlangePoseFromTcp(initial_pose, tcp_offset) if tcp_offset else None
         target_wrench = (
-            transform_wrench(initial_pose, initial_wrench_base)
+            transform_wrench(initial_pose, initial_wrench_base, flange_pose_init)
             if initial_wrench_base is not None
             else [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         )
@@ -97,8 +111,9 @@ def execute(self):
         while self.rtde_c.getAsyncOperationProgress() >= 0 and not self._stop_requested:
             current_pose = list(self.rtde_r.getActualTCPPose())
 
+            flange_pose = self.robot._calculateFlangePoseFromTcp(current_pose, tcp_offset) if tcp_offset else None
             target_wrench = (
-                transform_wrench(current_pose, initial_wrench_base)
+                transform_wrench(current_pose, initial_wrench_base, flange_pose)
                 if initial_wrench_base is not None
                 else [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             )
@@ -110,7 +125,7 @@ def execute(self):
                 wrench_base = wrench_base + [0.0] * (6 - len(wrench_base))
             if initial_wrench_base is not None:
                 wrench_base = [c - i for c, i in zip(wrench_base, initial_wrench_base)]
-            wrench_tcp = transform_wrench(current_pose, wrench_base)
+            wrench_tcp = transform_wrench(current_pose, wrench_base, flange_pose)
             mz = wrench_tcp[5]
 
             mz_exceeded = (direction_multiplier > 0 and mz < -max_moment) or (

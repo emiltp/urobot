@@ -2,15 +2,39 @@
 Waypoint collector for collecting and traversing robot trajectories.
 Uses NumPy .npz format for fast, compact storage.
 """
+import logging
 import os
 import time
 import numpy as np
+
+_log = logging.getLogger(__name__)
 from scipy.ndimage import uniform_filter1d
 from scipy.interpolate import CubicSpline
+from scipy.spatial.transform import Rotation, Slerp
 from typing import Optional, List, Tuple, Callable
 
 from config import defaults as CONFIG, runtime_tcp_offset, get_hybrid_config_for_path, _get_hybrid_force_params
 from src.utils import axis_angle_to_rotation_matrix, rotation_matrix_to_axis_angle
+
+
+def _orientation_diff_rad(pose_a: List[float], pose_b: List[float]) -> float:
+    """Geodesic rotation angle (rad) between two poses. Use instead of axis-angle Euclidean difference."""
+    R_a = axis_angle_to_rotation_matrix(pose_a[3], pose_a[4], pose_a[5])
+    R_b = axis_angle_to_rotation_matrix(pose_b[3], pose_b[4], pose_b[5])
+    R_err = R_b @ R_a.T
+    return np.linalg.norm(Rotation.from_matrix(R_err).as_rotvec())
+
+
+def _orientation_direction(pose_a: List[float], pose_b: List[float]) -> np.ndarray:
+    """Unit rotvec direction from pose_a to pose_b (geodesic). Returns zeros if already aligned."""
+    R_a = axis_angle_to_rotation_matrix(pose_a[3], pose_a[4], pose_a[5])
+    R_b = axis_angle_to_rotation_matrix(pose_b[3], pose_b[4], pose_b[5])
+    R_err = R_b @ R_a.T
+    rotvec = Rotation.from_matrix(R_err).as_rotvec()
+    norm = np.linalg.norm(rotvec)
+    if norm < 1e-6:
+        return np.zeros(3)
+    return rotvec / norm
 
 # Default paths derived from config
 DEFAULT_WAYPOINTS_FILE = os.path.join(CONFIG.paths.data_dir, CONFIG.paths.path_filename)
@@ -69,12 +93,20 @@ class WaypointCollector:
         self.filename = ""
 
         """Setting the async motion runner references for traversal."""
-        self.robot = async_motion_runner.robot  # UniversalRobot instance
-        self.rtde_c = async_motion_runner.rtde_c
-        self.rtde_r = async_motion_runner.rtde_r
-        self.progressCallback = lambda msg: async_motion_runner.movement_progress.emit(msg)
-        self.poseCallback = lambda pose: async_motion_runner.pose_updated.emit(pose)
-        self.stopCheck = lambda: async_motion_runner._stop_requested
+        if async_motion_runner is not None:
+            self.robot = async_motion_runner.robot
+            self.rtde_c = async_motion_runner.rtde_c
+            self.rtde_r = async_motion_runner.rtde_r
+            self.progressCallback = lambda msg: async_motion_runner.movement_progress.emit(msg)
+            self.poseCallback = lambda pose: async_motion_runner.pose_updated.emit(pose)
+            self.stopCheck = lambda: async_motion_runner._stop_requested
+        else:
+            self.robot = None
+            self.rtde_c = None
+            self.rtde_r = None
+            self.progressCallback = lambda msg: None
+            self.poseCallback = lambda pose: None
+            self.stopCheck = lambda: False
     
     
     @classmethod
@@ -88,13 +120,12 @@ class WaypointCollector:
         filepath = filepath or DEFAULT_WAYPOINTS_FILE
         if not os.path.exists(filepath):
             return None
-        
-        data = np.load(filepath)
-        collector = cls(async_motion_runner)
-        collector.waypoints = data['poses']
-        collector.timestamps = data['timestamps']
-        collector.filename = filepath
-        # Lists stay empty - use numpy arrays directly
+
+        with np.load(filepath) as data:
+            collector = cls(async_motion_runner)
+            collector.waypoints = np.array(data['poses'])
+            collector.timestamps = np.array(data['timestamps'])
+            collector.filename = filepath
         return collector
     
     # ==================== Collection Methods ====================
@@ -467,8 +498,12 @@ class WaypointCollector:
         
         try:
             # Get current pose
-            currentPose = self.robot.getTcpPose()
-            
+            currentPose = self.robot.getTcpPose() if self.robot else None
+            if currentPose is None or len(currentPose) < 6:
+                if self.progressCallback:
+                    self.progressCallback("Error: No valid TCP pose available for backward traverse.")
+                return False
+
             # Force mode parameters (motion-specific hybrid config from path filename)
             hybrid_cfg = get_hybrid_config_for_path(self.filename)
             z_limit, damping, gain = _get_hybrid_force_params(hybrid_cfg)
@@ -530,8 +565,8 @@ class WaypointCollector:
                         try:
                             self.poseCallback(actualPose)
                             lastPoseUpdate = currentTime
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            _log.warning("Pose callback failed: %s", e)
                 
                 # Check for stop request
                 if self.stopCheck and self.stopCheck():
@@ -554,9 +589,9 @@ class WaypointCollector:
                     finalPose = self.robot.getTcpPose()
                     if finalPose:
                         self.poseCallback(finalPose)
-                except Exception:
-                    pass
-            
+                except Exception as e:
+                    _log.warning("Final pose callback failed: %s", e)
+
             if self.progressCallback:
                 self.progressCallback("Force-compliant backward traverse completed")
             
@@ -568,8 +603,8 @@ class WaypointCollector:
         except Exception as e:
             try:
                 self.rtde_c.forceModeStop()
-            except Exception:
-                pass
+            except Exception as stop_err:
+                _log.debug("forceModeStop during cleanup: %s", stop_err)
             if self.progressCallback:
                 self.progressCallback(f"Error during force-compliant backward traverse: {str(e)}")
             return False
@@ -619,15 +654,15 @@ class WaypointCollector:
         trackingTimestamps = []
         
         try:
-            currentPose = self.robot.getTcpPose()
-            
+            currentPose = self.robot.getTcpPose() if self.robot else None
+
             # For forward traverse: move to start if needed
             # For backward traverse: skip "move to start" - just go from current position
-            if not isBackwardTraverse and currentPose:
+            if not isBackwardTraverse and currentPose is not None and len(currentPose) >= 6:
                 startPose = waypoints[0].tolist()
                 
                 posDiff = np.sqrt(sum((currentPose[i] - startPose[i])**2 for i in range(3)))
-                orientDiff = np.sqrt(sum((currentPose[i] - startPose[i])**2 for i in range(3, 6)))
+                orientDiff = _orientation_diff_rad(currentPose, startPose)
                 
                 if posDiff > 0.001 or orientDiff > 0.01:
                     if self.progressCallback:
@@ -695,8 +730,8 @@ class WaypointCollector:
                         try:
                             self.poseCallback(actualPose)
                             lastPoseUpdate = currentTime
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            _log.warning("Pose callback failed: %s", e)
                 
                 # Force control (only during forward traversal)
                 if enableForceControl and not isBackwardTraverse and (currentTime - lastForceCheck) >= forceCheckInterval:
@@ -731,9 +766,9 @@ class WaypointCollector:
                     finalPose = self.robot.getTcpPose()
                     if finalPose:
                         self.poseCallback(finalPose)
-                except Exception:
-                    pass
-            
+                except Exception as e:
+                    _log.warning("Final pose callback failed: %s", e)
+
             if self.progressCallback:
                 self.progressCallback(f"{action} completed")
             
@@ -789,14 +824,18 @@ class WaypointCollector:
             self.progressCallback(f"{action} of {len(waypoints)} waypoints, {waypointsDistance*1000:.1f}mm at {speed*1000:.1f}mm/s (moveLPath)")
         
         try:
-            currentPose = list(self.rtde_r.getActualTCPPose())
-            
+            currentPose = list(self.rtde_r.getActualTCPPose()) if self.rtde_r else None
+            if currentPose is None or len(currentPose) < 6:
+                if self.progressCallback:
+                    self.progressCallback("Error: No valid TCP pose for traverse.")
+                return False
+
             # For forward traverse: move to start if needed
             if not isBackwardTraverse:
                 startPose = waypoints[0].tolist()
                 
                 posDiff = np.sqrt(sum((currentPose[i] - startPose[i])**2 for i in range(3)))
-                orientDiff = np.sqrt(sum((currentPose[i] - startPose[i])**2 for i in range(3, 6)))
+                orientDiff = _orientation_diff_rad(currentPose, startPose)
                 
                 if posDiff > 0.001 or orientDiff > 0.01:
                     if self.progressCallback:
@@ -876,8 +915,8 @@ class WaypointCollector:
                         try:
                             self.poseCallback(actualPose)
                             lastPoseUpdate = currentTime
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            _log.warning("Pose callback failed: %s", e)
                 
                 # Force control (only during forward traversal)
                 if enableForceControl and not isBackwardTraverse and (currentTime - lastForceCheck) >= forceCheckInterval:
@@ -912,9 +951,9 @@ class WaypointCollector:
                     finalPose = self.robot.getTcpPose()
                     if finalPose:
                         self.poseCallback(finalPose)
-                except Exception:
-                    pass
-            
+                except Exception as e:
+                    _log.warning("Final pose callback failed: %s", e)
+
             if self.progressCallback:
                 self.progressCallback(f"{action} completed")
             
@@ -972,14 +1011,18 @@ class WaypointCollector:
         
         try:
             # Move to start if needed (check both position AND orientation)
-            currentPose = self.robot.getTcpPose()
+            currentPose = self.robot.getTcpPose() if self.robot else None
+            if currentPose is None or len(currentPose) < 6:
+                if self.progressCallback:
+                    self.progressCallback("Error: No valid TCP pose for servo path start.")
+                return False
             startPose = waypoints[0].tolist()
-            
+
             # Position difference
             posDiff = np.sqrt(sum((currentPose[i] - startPose[i])**2 for i in range(3)))
             
             # Orientation difference (axis-angle magnitude)
-            orientDiff = np.sqrt(sum((currentPose[i] - startPose[i])**2 for i in range(3, 6)))
+            orientDiff = _orientation_diff_rad(currentPose, startPose)
             
             if posDiff > 0.001 or orientDiff > 0.01:  # 1mm position or ~0.5° orientation
                 if self.progressCallback:
@@ -1068,16 +1111,16 @@ class WaypointCollector:
                         trackingTimestamps.append(currentTime - startTime)
                     if flangePose:
                         trackingFlangePoses.append(flangePose)
-                except Exception:
-                    pass
-                
+                except Exception as e:
+                    _log.warning("Traverse pose/state read failed: %s", e)
+
                 # Pose callback
                 if self.poseCallback and actualPose and (currentTime - lastPoseUpdate) >= poseUpdateInterval:
                     try:
                         self.poseCallback(actualPose)
                         lastPoseUpdate = currentTime
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _log.warning("Pose callback failed: %s", e)
                 
                 # Force control (only during traversal, not retrace)
                 if enableForceControl and not isBackwardTraverse and (currentTime - lastForceCheck) >= forceCheckInterval:
@@ -1105,9 +1148,9 @@ class WaypointCollector:
                     finalPose = self.robot.getTcpPose()
                     if finalPose:
                         self.poseCallback(finalPose)
-                except Exception:
-                    pass
-            
+                except Exception as e:
+                    _log.warning("Final pose callback failed: %s", e)
+
             if self.progressCallback:
                 self.progressCallback(f"{action} completed")
             
@@ -1119,8 +1162,8 @@ class WaypointCollector:
         except Exception as e:
             try:
                 self.rtde_c.servoStop()
-            except Exception:
-                pass
+            except Exception as stop_err:
+                _log.debug("servoStop during cleanup: %s", stop_err)
             if self.progressCallback:
                 self.progressCallback(f"Error during {action.lower()}: {e}")
             self.traverseStopIndex = -1
@@ -1153,14 +1196,18 @@ class WaypointCollector:
         trackingTimestamps = []
         
         try:
-            currentPose = self.robot.getTcpPose()
-            
+            currentPose = self.robot.getTcpPose() if self.robot else None
+            if currentPose is None or len(currentPose) < 6:
+                if self.progressCallback:
+                    self.progressCallback("Error: No valid TCP pose for force hybrid traverse.")
+                return False
+
             # Move to start if needed (forward traverse only)
-            if not isBackwardTraverse and currentPose:
+            if not isBackwardTraverse:
                 startPose = waypoints[0].tolist()
                 posDiff = np.sqrt(sum((currentPose[i] - startPose[i])**2 for i in range(3)))
-                orientDiff = np.sqrt(sum((currentPose[i] - startPose[i])**2 for i in range(3, 6)))
-                
+                orientDiff = _orientation_diff_rad(currentPose, startPose)
+
                 if posDiff > 0.001 or orientDiff > 0.01:
                     if self.progressCallback:
                         self.progressCallback(f"Moving to start...")
@@ -1184,6 +1231,10 @@ class WaypointCollector:
             
             # Enter force mode
             initialPose = self.robot.getTcpPose()
+            if initialPose is None or len(initialPose) < 6:
+                if self.progressCallback:
+                    self.progressCallback("Could not get TCP pose for force mode")
+                return False
             self.rtde_c.forceMode(initialPose, selection_vector, target_wrench, force_type, limits)
             
             if self.progressCallback:
@@ -1239,8 +1290,8 @@ class WaypointCollector:
                         try:
                             self.poseCallback(actualPose)
                             lastPoseUpdate = currentTime
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            _log.warning("Pose callback failed: %s", e)
                 
                 # Check for stop request
                 if self.stopCheck and self.stopCheck():
@@ -1263,9 +1314,9 @@ class WaypointCollector:
                     finalPose = self.robot.getTcpPose()
                     if finalPose:
                         self.poseCallback(finalPose)
-                except Exception:
-                    pass
-            
+                except Exception as e:
+                    _log.warning("Final pose callback failed: %s", e)
+
             if self.progressCallback:
                 self.progressCallback(f"{action} completed")
             
@@ -1275,8 +1326,8 @@ class WaypointCollector:
         except Exception as e:
             try:
                 self.rtde_c.forceModeStop()
-            except Exception:
-                pass
+            except Exception as stop_err:
+                _log.debug("forceModeStop during cleanup: %s", stop_err)
             if self.progressCallback:
                 self.progressCallback(f"Error during {action.lower()}: {str(e)}")
             return False
@@ -1304,14 +1355,18 @@ class WaypointCollector:
         trackingTimestamps = []
         
         try:
-            currentPose = self.robot.getTcpPose()
-            
+            currentPose = self.robot.getTcpPose() if self.robot else None
+            if currentPose is None or len(currentPose) < 6:
+                if self.progressCallback:
+                    self.progressCallback("Error: No valid TCP pose for force servo traverse.")
+                return False
+
             # Move to start if needed (forward traverse only)
-            if not isBackwardTraverse and currentPose:
+            if not isBackwardTraverse:
                 startPose = waypoints[0].tolist()
                 posDiff = np.sqrt(sum((currentPose[i] - startPose[i])**2 for i in range(3)))
-                orientDiff = np.sqrt(sum((currentPose[i] - startPose[i])**2 for i in range(3, 6)))
-                
+                orientDiff = _orientation_diff_rad(currentPose, startPose)
+
                 if posDiff > 0.001 or orientDiff > 0.01:
                     if self.progressCallback:
                         self.progressCallback(f"Moving to start...")
@@ -1335,6 +1390,10 @@ class WaypointCollector:
             
             # Enter force mode
             initialPose = self.robot.getTcpPose()
+            if initialPose is None or len(initialPose) < 6:
+                if self.progressCallback:
+                    self.progressCallback("Could not get TCP pose for force mode")
+                return False
             self.rtde_c.forceMode(initialPose, selection_vector, target_wrench, force_type, limits)
             
             if self.progressCallback:
@@ -1394,9 +1453,10 @@ class WaypointCollector:
                 # Calculate velocity (normalized direction * speed)
                 posVel = (diff[:3] / posDist) * speed if posDist > 0 else np.zeros(3)
                 
-                # Orientation velocity (simplified - proportional to difference)
-                orientVel = diff[3:6] * 2.0  # Simple proportional control
-                orientVel = np.clip(orientVel, -0.5, 0.5)
+                # Orientation velocity: geodesic direction * angular speed (avoids axis-angle subtraction near π)
+                orientAngle = _orientation_diff_rad(actualPose, targetPose)
+                orientDir = _orientation_direction(actualPose, targetPose)
+                orientVel = orientDir * min(orientAngle * 2.0, 0.5)
                 
                 # Construct speedL command [vx, vy, vz, ωx, ωy, ωz]
                 speedLCmd = list(posVel) + list(orientVel)
@@ -1408,9 +1468,9 @@ class WaypointCollector:
                     try:
                         self.poseCallback(actualPose)
                         lastPoseUpdate = currentTime
-                    except Exception:
-                        pass
-                
+                    except Exception as e:
+                        _log.warning("Pose callback failed: %s", e)
+
                 # Sleep to maintain timing
                 elapsed = time.time() - loopStart
                 if elapsed < dt:
@@ -1427,9 +1487,9 @@ class WaypointCollector:
                     finalPose = self.robot.getTcpPose()
                     if finalPose:
                         self.poseCallback(finalPose)
-                except Exception:
-                    pass
-            
+                except Exception as e:
+                    _log.warning("Final pose callback failed: %s", e)
+
             if self.progressCallback:
                 self.progressCallback(f"{action} completed")
             
@@ -1440,8 +1500,8 @@ class WaypointCollector:
             try:
                 self.rtde_c.speedStop()
                 self.rtde_c.forceModeStop()
-            except Exception:
-                pass
+            except Exception as stop_err:
+                _log.debug("speedStop/forceModeStop during cleanup: %s", stop_err)
             if self.progressCallback:
                 self.progressCallback(f"Error during {action.lower()}: {str(e)}")
             return False
@@ -1615,8 +1675,8 @@ def deleteWaypointsFile(filepath: str) -> bool:
         if os.path.exists(filepath):
             os.remove(filepath)
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning("Could not delete waypoints file %s: %s", filepath, e)
     return False
 
 
@@ -1625,8 +1685,8 @@ def loadWaypoints(filepath: Optional[str] = None) -> Tuple[Optional[np.ndarray],
     filepath = filepath or DEFAULT_WAYPOINTS_FILE
     if not os.path.exists(filepath):
         return None, None
-    data = np.load(filepath)
-    return data['poses'], data['timestamps']
+    with np.load(filepath) as data:
+        return np.array(data['poses']), np.array(data['timestamps'])
 
 
 
@@ -1634,12 +1694,16 @@ def loadWaypoints(filepath: Optional[str] = None) -> Tuple[Optional[np.ndarray],
 
 def smoothWaypoints(poses: np.ndarray, timestamps: np.ndarray,
                     smoothingWindow: int = 5) -> Tuple[np.ndarray, np.ndarray]:
-    """Apply smoothing filter to waypoints."""
+    """Apply smoothing filter to waypoints. Smooths position only; orientation preserved.
+
+    Linear smoothing of axis-angle is invalid (e.g. [0,0,0] and [0,0,2π] would average
+    incorrectly). Position is smoothed; orientation comes from the original poses.
+    """
     if len(poses) < smoothingWindow:
         return poses, timestamps
-    
-    smoothed = np.zeros_like(poses)
-    for i in range(6):
+
+    smoothed = poses.copy()
+    for i in range(3):
         smoothed[:, i] = uniform_filter1d(poses[:, i], size=smoothingWindow, mode='nearest')
     smoothed[0], smoothed[-1] = poses[0], poses[-1]
     return smoothed, timestamps
@@ -1670,13 +1734,13 @@ def interpolateWaypoints(poses: np.ndarray, timestamps: np.ndarray,
     targetDistance = targetDistance or 0.001  # 1mm default spacing
     rotationWeight = rotationWeight if rotationWeight is not None else getDefaultRotationWeight()
     
-    # Compute combined distance metric for each segment
-    # distance = sqrt(dx² + dy² + dz² + L²*(drx² + dry² + drz²))
-    # where L = rotationWeight converts radians to equivalent meters
-    diffs = np.diff(poses, axis=0)
-    trans_dist_sq = np.sum(diffs[:, :3]**2, axis=1)  # translation component
-    rot_dist_sq = np.sum(diffs[:, 3:]**2, axis=1) * (rotationWeight**2)  # rotation component
-    segment_distances = np.sqrt(trans_dist_sq + rot_dist_sq)
+    # Compute combined distance metric for each segment (geodesic rotation, not axis-angle Euclidean)
+    # distance = sqrt(dx² + dy² + dz² + (L * geodesic_angle)²)
+    segment_distances = np.zeros(len(poses) - 1)
+    for j in range(len(poses) - 1):
+        trans = np.linalg.norm(poses[j + 1, :3] - poses[j, :3])
+        rot_rad = _orientation_diff_rad(poses[j].tolist(), poses[j + 1].tolist())
+        segment_distances[j] = np.sqrt(trans**2 + (rot_rad * rotationWeight)**2)
     
     # Cumulative distance along path
     cumulative_dist = np.zeros(len(poses))
@@ -1690,11 +1754,17 @@ def interpolateWaypoints(poses: np.ndarray, timestamps: np.ndarray,
     num_samples = max(4, int(np.ceil(total_distance / targetDistance)) + 1)
     new_distances = np.linspace(0, total_distance, num_samples)
     
-    # Interpolate poses at new distance points
+    # Interpolate position with cubic spline (axis-angle cannot use linear/cubic spline)
     interpolated = np.zeros((num_samples, 6))
-    for i in range(6):
+    for i in range(3):
         cs = CubicSpline(cumulative_dist, poses[:, i])
         interpolated[:, i] = cs(new_distances)
+    
+    # Interpolate orientation with SLERP (geodesic, avoids CubicSpline on axis-angle)
+    key_rots = Rotation.from_rotvec(poses[:, 3:6])
+    slerp = Slerp(cumulative_dist, key_rots)
+    interp_rots = slerp(new_distances)
+    interpolated[:, 3:6] = interp_rots.as_rotvec()
     
     # Interpolate timestamps based on distance (preserves velocity profile)
     ts_spline = CubicSpline(cumulative_dist, timestamps)
@@ -1723,10 +1793,12 @@ def calculateWaypointsDistance(poses: np.ndarray, rotationWeight: Optional[float
     if poses is None or len(poses) < 2:
         return 0.0
     rotationWeight = rotationWeight if rotationWeight is not None else getDefaultRotationWeight()
-    diffs = np.diff(poses, axis=0)
-    trans_dist_sq = np.sum(diffs[:, :3]**2, axis=1)
-    rot_dist_sq = np.sum(diffs[:, 3:]**2, axis=1) * (rotationWeight**2)
-    return float(np.sum(np.sqrt(trans_dist_sq + rot_dist_sq)))
+    total = 0.0
+    for j in range(len(poses) - 1):
+        trans = np.linalg.norm(poses[j + 1, :3] - poses[j, :3])
+        rot_rad = _orientation_diff_rad(poses[j].tolist(), poses[j + 1].tolist())
+        total += np.sqrt(trans**2 + (rot_rad * rotationWeight)**2)
+    return float(total)
 
 
 def calculateWaypointsAngularVelocity(poses: np.ndarray, timestamps: np.ndarray) -> float:
@@ -1747,7 +1819,9 @@ def getReversedWaypoints(filepath: Optional[str] = None,
     
     waypoints = collector.getWaypoints()
     timestamps = collector.getTimestamps()
-    
+    if waypoints is None or timestamps is None or len(waypoints) == 0:
+        return None, None
+
     reversedWaypoints = waypoints[::-1].copy()
     if len(timestamps) > 1:
         deltas = np.diff(timestamps)[::-1]
@@ -1835,37 +1909,19 @@ def smoothWaypointsByFlange(poses: np.ndarray, timestamps: np.ndarray,
     # Convert to flange poses
     flangePoses = _tcpPosesToFlangePoses(poses)
     
-    # Smooth the flange poses
-    smoothedFlange = np.zeros_like(flangePoses)
-    for i in range(6):
+    # Smooth position only; linear smoothing of axis-angle is invalid (e.g. [0,0,0] and [0,0,2π]
+    # would average to ~π instead of ~0). Orientation is preserved from original flange.
+    smoothedFlange = flangePoses.copy()
+    for i in range(3):
         smoothedFlange[:, i] = uniform_filter1d(flangePoses[:, i], size=smoothingWindow, mode='nearest')
-    
-    # Preserve endpoints
     smoothedFlange[0] = flangePoses[0]
     smoothedFlange[-1] = flangePoses[-1]
     
-    # Compute how much each flange pose changed, use that to adjust TCP poses
-    # Delta = smoothed_flange - original_flange
-    # Apply same delta to TCP poses (for position, orientation handled separately)
+    # Apply position delta to TCP poses; orientation unchanged (no axis-angle smoothing)
     smoothedTcp = poses.copy()
     for i in range(len(poses)):
-        # Position delta
         positionDelta = smoothedFlange[i, :3] - flangePoses[i, :3]
         smoothedTcp[i, :3] = poses[i, :3] + positionDelta
-        
-        # For orientation, we apply the smoothed flange orientation change
-        # by computing the relative rotation and applying it to TCP
-        origFlangeRot = axis_angle_to_rotation_matrix(flangePoses[i, 3], flangePoses[i, 4], flangePoses[i, 5])
-        smoothFlangeRot = axis_angle_to_rotation_matrix(smoothedFlange[i, 3], smoothedFlange[i, 4], smoothedFlange[i, 5])
-        
-        # Relative rotation: R_smooth @ R_orig^T
-        relRot = smoothFlangeRot @ origFlangeRot.T
-        
-        # Apply to TCP orientation
-        origTcpRot = axis_angle_to_rotation_matrix(poses[i, 3], poses[i, 4], poses[i, 5])
-        newTcpRot = relRot @ origTcpRot
-        rx, ry, rz = rotation_matrix_to_axis_angle(newTcpRot)
-        smoothedTcp[i, 3:] = [rx, ry, rz]
     
     # Preserve exact endpoints
     smoothedTcp[0] = poses[0]
@@ -1900,11 +1956,12 @@ def interpolateWaypointsByFlange(poses: np.ndarray, timestamps: np.ndarray,
     # Convert to flange poses
     flangePoses = _tcpPosesToFlangePoses(poses)
     
-    # Compute combined distance based on flange movement
-    diffs = np.diff(flangePoses, axis=0)
-    trans_dist_sq = np.sum(diffs[:, :3]**2, axis=1)
-    rot_dist_sq = np.sum(diffs[:, 3:]**2, axis=1) * (rotationWeight**2)
-    segment_distances = np.sqrt(trans_dist_sq + rot_dist_sq)
+    # Compute combined distance based on flange movement (geodesic rotation, not axis-angle Euclidean)
+    segment_distances = np.zeros(len(flangePoses) - 1)
+    for j in range(len(flangePoses) - 1):
+        trans = np.linalg.norm(flangePoses[j + 1, :3] - flangePoses[j, :3])
+        rot_rad = _orientation_diff_rad(flangePoses[j].tolist(), flangePoses[j + 1].tolist())
+        segment_distances[j] = np.sqrt(trans**2 + (rot_rad * rotationWeight)**2)
     
     # Cumulative distance along path
     cumulative_dist = np.zeros(len(poses))
@@ -1918,11 +1975,14 @@ def interpolateWaypointsByFlange(poses: np.ndarray, timestamps: np.ndarray,
     num_samples = max(4, int(np.ceil(total_distance / targetDistance)) + 1)
     new_distances = np.linspace(0, total_distance, num_samples)
     
-    # Interpolate TCP poses at new distance points (using flange-based distances)
+    # Interpolate TCP position with cubic spline; orientation with SLERP (geodesic)
     interpolated = np.zeros((num_samples, 6))
-    for i in range(6):
+    for i in range(3):
         cs = CubicSpline(cumulative_dist, poses[:, i])
         interpolated[:, i] = cs(new_distances)
+    key_rots = Rotation.from_rotvec(poses[:, 3:6])
+    slerp = Slerp(cumulative_dist, key_rots)
+    interpolated[:, 3:6] = slerp(new_distances).as_rotvec()
     
     # Interpolate timestamps
     ts_spline = CubicSpline(cumulative_dist, timestamps)
@@ -1949,11 +2009,12 @@ def calculateFlangeDistance(poses: np.ndarray, rotationWeight: Optional[float] =
     """
     if poses is None or len(poses) < 2:
         return 0.0
-    
+
     rotationWeight = rotationWeight if rotationWeight is not None else getDefaultRotationWeight()
     flangePoses = _tcpPosesToFlangePoses(poses)
-    
-    diffs = np.diff(flangePoses, axis=0)
-    trans_dist_sq = np.sum(diffs[:, :3]**2, axis=1)
-    rot_dist_sq = np.sum(diffs[:, 3:]**2, axis=1) * (rotationWeight**2)
-    return float(np.sum(np.sqrt(trans_dist_sq + rot_dist_sq)))
+    total = 0.0
+    for j in range(len(flangePoses) - 1):
+        trans = np.linalg.norm(flangePoses[j + 1, :3] - flangePoses[j, :3])
+        rot_rad = _orientation_diff_rad(flangePoses[j].tolist(), flangePoses[j + 1].tolist())
+        total += np.sqrt(trans**2 + (rot_rad * rotationWeight)**2)
+    return float(total)

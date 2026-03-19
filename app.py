@@ -29,7 +29,8 @@ from scipy.spatial.transform import Rotation
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QTextEdit, QGroupBox, QDialog,
-    QComboBox, QStackedWidget, QMenu, QSizePolicy, QMessageBox
+    QComboBox, QStackedWidget, QMenu, QSizePolicy, QMessageBox,
+    QStyledItemDelegate,
 )
 from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal, QThread
 from PyQt6.QtGui import QFont, QTextCursor, QAction
@@ -498,7 +499,13 @@ class TCPVisualizer(QMainWindow):
         self.ref_frame_relative_combo.addItems(["TCP", "Flange"])
         self.ref_frame_relative_combo.setCurrentIndex(0)
         self.ref_frame_relative_combo.setToolTip("Ref frame offset is applied relative to TCP or Flange")
-        self.ref_frame_relative_combo.setMinimumWidth(120)
+        self.ref_frame_relative_combo.setMinimumWidth(90)
+        self.ref_frame_relative_combo.setItemDelegate(QStyledItemDelegate(self.ref_frame_relative_combo))
+        self.ref_frame_relative_combo.setStyleSheet("""
+            QComboBox QAbstractItemView::item {
+                padding-left: 4px;
+            }
+        """)
         self.ref_frame_relative_combo.setEnabled(False)
         self.ref_frame_relative_combo.currentIndexChanged.connect(self._on_ref_frame_relative_changed)
         ref_header_row.addWidget(self.ref_frame_relative_combo)

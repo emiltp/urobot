@@ -19,6 +19,12 @@ def execute(self):
     """Execute new-z movement using force mode with speedL control loop."""
     startPosition = self.kwargs.get('start_position')
     newPose = self.kwargs.get('new_pose')
+    if startPosition is None:
+        self.movement_progress.emit("Error: start_position is required")
+        return
+    if newPose is None:
+        self.movement_progress.emit("Error: new_pose is required")
+        return
     speed = self.kwargs.get('speed', CONFIG.new_z.speed)
     accel = self.kwargs.get('accel', CONFIG.new_z.acceleration)
     momentLimitZ = self.kwargs.get('moment_limit_z', CONFIG.new_z.max_moment)

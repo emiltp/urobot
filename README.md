@@ -52,13 +52,12 @@ urobot/
 │   │   ├── waypoint_collector.py   # Path recording & traversal
 │   │   ├── async_motion_runner.py  # Async movement execution
 │   │   ├── home.py                 # Home position movements
-│   │   ├── flexion_x/              # Flexion X movement
-│   │   ├── flexion_x_hybrid/       # Flexion X with force mode
-│   │   ├── flexion_x_force/        # Flexion X force-only mode
-│   │   ├── flexion_y/              # Flexion Y movement
-│   │   ├── flexion_y_hybrid/       # Flexion Y with force mode
-│   │   ├── flexion_y_force/        # Flexion Y force-only mode
-│   │   ├── rotation/               # Axial rotation movement
+│   │   ├── flexion_x/              # Flexion X (original/, hybrid/, force/)
+│   │   ├── flexion_y/              # Flexion Y (original/, hybrid/, force/)
+│   │   ├── new_x/, new_y/, new_z/  # Orbital movements (original/, hybrid/, force/)
+│   │   ├── arc_x/, arc_y/, arc_z/  # Arc movements (movel/)
+│   │   ├── arc_force/              # Force-mode arcs (movel/, servol/, speedl/)
+│   │   ├── rotation/               # Axial rotation (original/, hybrid/, force/, direct/)
 │   │   └── freemove/               # Freedrive waypoint collection
 │   ├── dialogboxes/            # UI dialogs
 │   ├── graphs_widget.py        # Real-time force/position graphs

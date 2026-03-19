@@ -14,7 +14,7 @@ from scipy.spatial.transform import Rotation
 import numpy as np
 
 from src.ui import ArrowButton, CircleWidget, CollapsibleGroupBox
-from src.utils import axis_angle_to_rotation_matrix, rotation_matrix_to_axis_angle
+from src.utils import axis_angle_to_rotation_matrix, rotation_matrix_to_axis_angle, orbit_tcp_around_ref
 from src.motion_logger import getLogfilePath
 from src.objects.actors.endpoint_axes_actor import EndpointAxesActor
 
@@ -649,7 +649,7 @@ class NewXWidget(QWidget):
         angle_deg = self.angle_input.value()
         angle_rad = math.radians(angle_deg * DIRECTION_MAP[direction])
         
-        endpoint_pose = _orbit_tcp_around_ref_x(tcp_pose, ref_pose, angle_rad)
+        endpoint_pose = orbit_tcp_around_ref(tcp_pose, ref_pose, angle_rad, 'x')
         
         origin = endpoint_pose[:3]
         rot = axis_angle_to_rotation_matrix(endpoint_pose[3], endpoint_pose[4], endpoint_pose[5])
@@ -745,7 +745,7 @@ class NewXWidget(QWidget):
             
             ref_pose = self.app.robot._calculateRefFramePose(start_position, ref_offset)
             angle_rad = math.radians(angle_deg * direction_multiplier)
-            new_pose = _orbit_tcp_around_ref_x(start_position, ref_pose, angle_rad)
+            new_pose = orbit_tcp_around_ref(start_position, ref_pose, angle_rad, 'x')
             
             print(f"Orbiting TCP {angle_deg * direction_multiplier}° around Ref frame x-axis...")
             print(f"Saving path to: {path_file}")
@@ -897,10 +897,10 @@ class NewXWidget(QWidget):
         
         try:
             filepath = method_module.get_path_filename(direction)
-            data = np.load(filepath)
-            waypoints = data['poses']
-            timestamps = data['timestamps']
-            
+            with np.load(filepath) as data:
+                waypoints = np.array(data['poses'])
+                timestamps = np.array(data['timestamps'])
+
             original_count = len(waypoints)
             processed_waypoints, processed_timestamps = process_func(waypoints, timestamps)
             
@@ -953,48 +953,6 @@ def rotate_pose_around_tcp_x(pose: List[float], angle_deg: float) -> List[float]
     rx_new, ry_new, rz_new = rotation_matrix_to_axis_angle(R_new)
 
     return [x, y, z, rx_new, ry_new, rz_new]
-
-
-def _orbit_tcp_around_ref_x(tcp_pose: List[float], ref_pose: List[float],
-                             angle_rad: float) -> List[float]:
-    """Orbit the TCP around the Ref frame's local x-axis.
-
-    The TCP endpoint is placed at the same distance from the Ref frame origin
-    as the current TCP, but rotated by *angle_rad* around the Ref frame's
-    local x-axis.  The TCP orientation is rotated by the same amount.
-
-    Args:
-        tcp_pose: Current TCP pose [x, y, z, rx, ry, rz] in base frame.
-        ref_pose: Ref frame pose [x, y, z, rx, ry, rz] in base frame.
-        angle_rad: Rotation angle in radians around the Ref frame x-axis.
-
-    Returns:
-        Endpoint pose [x, y, z, rx, ry, rz] in base frame.
-    """
-    ref_pos = np.array(ref_pose[:3])
-    R_ref = axis_angle_to_rotation_matrix(ref_pose[3], ref_pose[4], ref_pose[5])
-
-    tcp_pos = np.array(tcp_pose[:3])
-    R_tcp = axis_angle_to_rotation_matrix(tcp_pose[3], tcp_pose[4], tcp_pose[5])
-
-    # Vector from ref origin to TCP, expressed in ref-local coordinates
-    offset_base = tcp_pos - ref_pos
-    offset_local = R_ref.T @ offset_base
-
-    # Rotate that local vector around the ref-local x-axis
-    R_x = Rotation.from_rotvec([angle_rad, 0, 0]).as_matrix()
-    offset_local_rotated = R_x @ offset_local
-
-    # Back to base frame
-    new_pos = ref_pos + R_ref @ offset_local_rotated
-
-    # Rotate the TCP orientation by the same rotation (applied in base frame)
-    R_base_rotation = R_ref @ R_x @ R_ref.T
-    R_new = R_base_rotation @ R_tcp
-
-    rx_new, ry_new, rz_new = rotation_matrix_to_axis_angle(R_new)
-    return [float(new_pos[0]), float(new_pos[1]), float(new_pos[2]),
-            float(rx_new), float(ry_new), float(rz_new)]
 
 
 MotionWidget = NewXWidget

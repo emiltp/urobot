@@ -1,7 +1,11 @@
-from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtGui import QTextCursor
+import logging
 import os
 from datetime import datetime
+
+from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtGui import QTextCursor
+
+_log = logging.getLogger(__name__)
 
 class TerminalStream(QObject):
     """Custom stream handler that redirects stdout/stderr to a QTextEdit widget and log file."""
@@ -47,9 +51,8 @@ class TerminalStream(QObject):
                     if line.strip():
                         self.log_file.write(timestamp + line + '\n')
                 self.log_file.flush()
-            except Exception:
-                # Don't propagate logging errors
-                pass
+            except Exception as e:
+                _log.warning("TerminalStream log file write failed: %s", e)
     
     def append_text(self, text):
         """Append text to the console widget (called in main thread)."""
@@ -63,9 +66,13 @@ class TerminalStream(QObject):
         if self.log_file:
             try:
                 self.log_file.flush()
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning("TerminalStream log file flush failed: %s", e)
     
+    def __del__(self):
+        """Ensure log file is closed on cleanup (e.g. crash)."""
+        self.close()
+
     def close(self):
         """Close the log file and write session end marker."""
         if self.log_file:
@@ -75,6 +82,6 @@ class TerminalStream(QObject):
                 self.log_file.write(f"{'='*80}\n")
                 self.log_file.flush()
                 self.log_file.close()
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning("TerminalStream log file close failed: %s", e)
             self.log_file = None

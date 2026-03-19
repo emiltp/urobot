@@ -9,6 +9,12 @@ def execute(self):
     """Execute flexion-y movement (rotation about TCP y-axis, controlling Fx while maintaining Fz=0)."""
     startPosition = self.kwargs.get('start_position')
     newPose = self.kwargs.get('new_pose')
+    if startPosition is None:
+        self.movement_progress.emit("Error: start_position is required")
+        return
+    if newPose is None:
+        self.movement_progress.emit("Error: new_pose is required")
+        return
     speed = self.kwargs.get('speed', CONFIG.flexion_y.speed)
     accel = self.kwargs.get('accel', CONFIG.flexion_y.acceleration)
     forceControlGain = self.kwargs.get('force_control_gain', CONFIG.flexion_y_original.force_control_gain)

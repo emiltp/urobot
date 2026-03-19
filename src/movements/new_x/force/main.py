@@ -20,6 +20,12 @@ def execute(self):
     """Execute new-x movement using force mode with speedL control loop."""
     startPosition = self.kwargs.get('start_position')
     newPose = self.kwargs.get('new_pose')
+    if startPosition is None:
+        self.movement_progress.emit("Error: start_position is required")
+        return
+    if newPose is None:
+        self.movement_progress.emit("Error: new_pose is required")
+        return
     speed = self.kwargs.get('speed', CONFIG.new_x.speed)
     accel = self.kwargs.get('accel', CONFIG.new_x.acceleration)
     forceLimitY = self.kwargs.get('force_limit_y', CONFIG.new_x.force_limit_y)
@@ -136,8 +142,8 @@ def execute(self):
             else:
                 posDirection = np.zeros(3)
 
-            # Compute angular velocity toward target orientation
-            rotDirection = _normalize_rotation_vector(targetOrientation - currentOrientation)
+            # Compute angular velocity toward target orientation (geodesic direction)
+            rotDirection = _get_rotation_direction(currentOrientation, targetOrientation)
 
             # Slow down as we approach target
             totalError = posError + rotError
@@ -201,9 +207,13 @@ def _calculate_rotation_error(current: np.ndarray, target: np.ndarray) -> float:
     return np.linalg.norm(r.as_rotvec())
 
 
-def _normalize_rotation_vector(vec: np.ndarray) -> np.ndarray:
-    """Normalize a rotation vector, handling zero case."""
-    norm = np.linalg.norm(vec)
+def _get_rotation_direction(current: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """Return geodesic rotation direction from current to target. Avoids axis-angle subtraction near π."""
+    R_current = axis_angle_to_rotation_matrix(current[0], current[1], current[2])
+    R_target = axis_angle_to_rotation_matrix(target[0], target[1], target[2])
+    R_error = R_target @ R_current.T
+    rotvec = Rotation.from_matrix(R_error).as_rotvec()
+    norm = np.linalg.norm(rotvec)
     if norm < 1e-6:
         return np.zeros(3)
-    return vec / norm
+    return rotvec / norm

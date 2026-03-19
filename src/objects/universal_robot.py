@@ -8,7 +8,10 @@ This class encapsulates:
 - Visualization via UniversalRobotActor
 """
 
+import logging
 import threading
+
+_log = logging.getLogger(__name__)
 from typing import List, Optional, Tuple, Callable
 import numpy as np
 import vtk
@@ -171,24 +174,24 @@ class UniversalRobot:
             if self._freedriveActive and self._rtdeC is not None:
                 try:
                     self._rtdeC.endFreedriveMode()
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.debug("endFreedriveMode during disconnect: %s", e)
                 self._freedriveActive = False
             
             # Disconnect control interface
             if self._rtdeC is not None:
                 try:
                     self._rtdeC.disconnect()
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.debug("rtdeControl disconnect during cleanup: %s", e)
                 self._rtdeC = None
             
             # Disconnect receive interface
             if self._rtdeR is not None:
                 try:
                     self._rtdeR.disconnect()
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.debug("rtdeReceive disconnect during cleanup: %s", e)
                 self._rtdeR = None
             
             self._connected = False
@@ -205,7 +208,8 @@ class UniversalRobot:
             return False
         try:
             return self._rtdeR.isConnected()
-        except Exception:
+        except Exception as e:
+            _log.debug("isConnected check failed: %s", e)
             return False
     
     @property
@@ -241,20 +245,20 @@ class UniversalRobot:
                         self._flangePose = self._calculateFlangePoseFromTcp(
                             self._tcpPose, self._tcpOffset
                         )
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.debug("Flange pose calculation in _updateState failed: %s", e)
                 
                 # Read joint positions
                 try:
                     self._jointPositions = list(self._rtdeR.getActualQ())
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.debug("Joint positions read in _updateState failed: %s", e)
                 
                 # Read TCP force
                 try:
                     self._tcpForce = list(self._rtdeR.getActualTCPForce())
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.debug("TCP force read in _updateState failed: %s", e)
                     
             except Exception as e:
                 print(f"Error updating robot state: {e}")
@@ -320,8 +324,8 @@ class UniversalRobot:
                     self._tcpPose, self._tcpOffset
                 )
                 return self._flangePose.copy() if self._flangePose else None
-        except Exception:
-            pass
+        except Exception as e:
+            _log.debug("getFlangePose failed: %s", e)
         return None
     
     def getJointPositions(self) -> Optional[List[float]]:
@@ -337,7 +341,8 @@ class UniversalRobot:
         try:
             self._jointPositions = list(self._rtdeR.getActualQ())
             return self._jointPositions.copy()
-        except Exception:
+        except Exception as e:
+            _log.debug("getJointPositions failed: %s", e)
             return None
     
     def getTcpForce(self) -> Optional[List[float]]:
@@ -353,7 +358,8 @@ class UniversalRobot:
         try:
             self._tcpForce = list(self._rtdeR.getActualTCPForce())
             return self._tcpForce.copy()
-        except Exception:
+        except Exception as e:
+            _log.debug("getTcpForce failed: %s", e)
             return None
     
     def isProtectiveStopped(self) -> bool:
@@ -363,7 +369,8 @@ class UniversalRobot:
         try:
             self._protectiveStopped = self._rtdeR.isProtectiveStopped()
             return self._protectiveStopped
-        except Exception:
+        except Exception as e:
+            _log.debug("isProtectiveStopped check failed: %s", e)
             return self._protectiveStopped
     
     def isEmergencyStopped(self) -> bool:
@@ -373,7 +380,8 @@ class UniversalRobot:
         try:
             self._emergencyStopped = self._rtdeR.isEmergencyStopped()
             return self._emergencyStopped
-        except Exception:
+        except Exception as e:
+            _log.debug("isEmergencyStopped check failed: %s", e)
             return self._emergencyStopped
 
     def isEqualToTcpPose(self, pose: List[float], position_tolerance: float = None, orientation_tolerance: float = None) -> bool:
@@ -398,8 +406,8 @@ class UniversalRobot:
         if self.isConnected() and self._rtdeC is not None:
             try:
                 self._tcpOffset = list(self._rtdeC.getTCPOffset())
-            except (AttributeError, Exception):
-                pass  # Method might not exist in all RTDE versions
+            except (AttributeError, Exception) as e:
+                _log.debug("getTCPOffset failed (method may not exist in all RTDE versions): %s", e)
         
         return self._tcpOffset.copy() if self._tcpOffset else None
     

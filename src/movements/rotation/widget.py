@@ -82,9 +82,9 @@ class AxialRotationWidget(QWidget):
         self.method_combo.addItem("Direct (force mode + moveL)", "direct")
         self.method_combo.addItem("Hybrid (force mode + moveL)", "hybrid")
         self.method_combo.addItem("Force (force mode + speedL)", "force")
-        self.method_combo.setCurrentIndex(0)
+        self.method_combo.setCurrentIndex(2)  # Force as default
         self.method_combo.setToolTip(
-            "Direct: Fz compliance only with moveL trajectory\n"
+            "Direct: Full Fx/Fy/Fz compliance with moveL trajectory\n"
             "Hybrid: Full Fx/Fy/Fz compliance with moveL trajectory\n"
             "Force: Full Fx/Fy/Fz compliance with real-time speedL control loop"
         )
@@ -121,18 +121,35 @@ class AxialRotationWidget(QWidget):
         # =====================================================
         self.direct_params_group = CollapsibleGroupBox("Force Mode Parameters", expanded=False)
 
+        self.direct_z_limit_group = CollapsibleGroupBox("Z Limit Control", expanded=False)
         self.direct_z_limit_input = self._add_spin(
-            self.direct_params_group, "Z Limit (m/s):", 0.001, 0.5,
-            CONFIG.rotation.force_mode_z_limit, 3, 0.01, tooltip=TT["force_mode_z_limit"]
+            self.direct_z_limit_group, "Limit (m/s):", 0.001, 0.5,
+            CONFIG.rotation.z_limit.force_mode_z_limit, 3, 0.01, tooltip=TT["force_mode_z_limit"]
         )
-        self.direct_damping_input = self._add_spin(
-            self.direct_params_group, "Damping (0-1):", 0.0, 1.0,
-            CONFIG.rotation.force_mode_damping, 2, 0.05, tooltip=TT["force_mode_damping"]
+        self.direct_z_damping_input = self._add_spin(
+            self.direct_z_limit_group, "Damping (0-1):", 0.0, 1.0,
+            CONFIG.rotation.z_limit.force_mode_damping, 2, 0.05, tooltip=TT["force_mode_damping"]
         )
-        self.direct_gain_input = self._add_spin(
-            self.direct_params_group, "Gain Scaling (0-2):", 0.0, 2.0,
-            CONFIG.rotation.force_mode_gain_scaling, 2, 0.1, tooltip=TT["force_mode_gain_scaling"]
+        self.direct_z_gain_input = self._add_spin(
+            self.direct_z_limit_group, "Gain Scaling (0-2):", 0.0, 2.0,
+            CONFIG.rotation.z_limit.force_mode_gain_scaling, 2, 0.1, tooltip=TT["force_mode_gain_scaling"]
         )
+        self.direct_params_group.addWidget(self.direct_z_limit_group)
+
+        self.direct_xy_limit_group = CollapsibleGroupBox("XY Limit Control", expanded=False)
+        self.direct_xy_limit_input = self._add_spin(
+            self.direct_xy_limit_group, "Limit (m/s):", 0.001, 0.5,
+            CONFIG.rotation.xy_limit.force_mode_xy_limit, 3, 0.01, tooltip=TT["force_mode_xy_limit"]
+        )
+        self.direct_xy_damping_input = self._add_spin(
+            self.direct_xy_limit_group, "Damping (0-1):", 0.0, 1.0,
+            CONFIG.rotation.xy_limit.force_mode_damping, 2, 0.05, tooltip=TT["force_mode_damping"]
+        )
+        self.direct_xy_gain_input = self._add_spin(
+            self.direct_xy_limit_group, "Gain Scaling (0-2):", 0.0, 2.0,
+            CONFIG.rotation.xy_limit.force_mode_gain_scaling, 2, 0.1, tooltip=TT["force_mode_gain_scaling"]
+        )
+        self.direct_params_group.addWidget(self.direct_xy_limit_group)
 
         layout.addWidget(self.direct_params_group)
 
@@ -141,22 +158,35 @@ class AxialRotationWidget(QWidget):
         # =====================================================
         self.hybrid_params_group = CollapsibleGroupBox("Collection Method Parameters", expanded=False)
 
-        self.hybrid_xy_limit_input = self._add_spin(
-            self.hybrid_params_group, "XY Limit (m/s):", 0.001, 0.5,
-            CONFIG.rotation_hybrid.force_mode_xy_limit, 3, 0.01, tooltip=TT["force_mode_xy_limit"]
-        )
+        self.hybrid_z_limit_group = CollapsibleGroupBox("Z Limit Control", expanded=False)
         self.hybrid_z_limit_input = self._add_spin(
-            self.hybrid_params_group, "Z Limit (m/s):", 0.001, 0.5,
-            CONFIG.rotation_hybrid.force_mode_z_limit, 3, 0.01, tooltip=TT["force_mode_z_limit"]
+            self.hybrid_z_limit_group, "Limit (m/s):", 0.001, 0.5,
+            CONFIG.rotation_hybrid.z_limit.force_mode_z_limit, 3, 0.01, tooltip=TT["force_mode_z_limit"]
         )
-        self.hybrid_damping_input = self._add_spin(
-            self.hybrid_params_group, "Damping (0-1):", 0.0, 1.0,
-            CONFIG.rotation_hybrid.force_mode_damping, 2, 0.05, tooltip=TT["force_mode_damping"]
+        self.hybrid_z_damping_input = self._add_spin(
+            self.hybrid_z_limit_group, "Damping (0-1):", 0.0, 1.0,
+            CONFIG.rotation_hybrid.z_limit.force_mode_damping, 2, 0.05, tooltip=TT["force_mode_damping"]
         )
-        self.hybrid_gain_input = self._add_spin(
-            self.hybrid_params_group, "Gain Scaling (0-2):", 0.0, 2.0,
-            CONFIG.rotation_hybrid.force_mode_gain_scaling, 2, 0.1, tooltip=TT["force_mode_gain_scaling"]
+        self.hybrid_z_gain_input = self._add_spin(
+            self.hybrid_z_limit_group, "Gain Scaling (0-2):", 0.0, 2.0,
+            CONFIG.rotation_hybrid.z_limit.force_mode_gain_scaling, 2, 0.1, tooltip=TT["force_mode_gain_scaling"]
         )
+        self.hybrid_params_group.addWidget(self.hybrid_z_limit_group)
+
+        self.hybrid_xy_limit_group = CollapsibleGroupBox("XY Limit Control", expanded=False)
+        self.hybrid_xy_limit_input = self._add_spin(
+            self.hybrid_xy_limit_group, "Limit (m/s):", 0.001, 0.5,
+            CONFIG.rotation_hybrid.xy_limit.force_mode_xy_limit, 3, 0.01, tooltip=TT["force_mode_xy_limit"]
+        )
+        self.hybrid_xy_damping_input = self._add_spin(
+            self.hybrid_xy_limit_group, "Damping (0-1):", 0.0, 1.0,
+            CONFIG.rotation_hybrid.xy_limit.force_mode_damping, 2, 0.05, tooltip=TT["force_mode_damping"]
+        )
+        self.hybrid_xy_gain_input = self._add_spin(
+            self.hybrid_xy_limit_group, "Gain Scaling (0-2):", 0.0, 2.0,
+            CONFIG.rotation_hybrid.xy_limit.force_mode_gain_scaling, 2, 0.1, tooltip=TT["force_mode_gain_scaling"]
+        )
+        self.hybrid_params_group.addWidget(self.hybrid_xy_limit_group)
 
         layout.addWidget(self.hybrid_params_group)
 
@@ -165,22 +195,6 @@ class AxialRotationWidget(QWidget):
         # =====================================================
         self.force_params_group = CollapsibleGroupBox("Collection Method Parameters", expanded=False)
 
-        self.force_xy_limit_input = self._add_spin(
-            self.force_params_group, "XY Limit (m/s):", 0.001, 0.5,
-            CONFIG.rotation_force.force_mode_xy_limit, 3, 0.01, tooltip=TT["force_mode_xy_limit"]
-        )
-        self.force_z_limit_input = self._add_spin(
-            self.force_params_group, "Z Limit (m/s):", 0.001, 0.5,
-            CONFIG.rotation_force.force_mode_z_limit, 3, 0.01, tooltip=TT["force_mode_z_limit"]
-        )
-        self.force_damping_input = self._add_spin(
-            self.force_params_group, "Damping (0-1):", 0.0, 1.0,
-            CONFIG.rotation_force.force_mode_damping, 2, 0.05, tooltip=TT["force_mode_damping"]
-        )
-        self.force_gain_input = self._add_spin(
-            self.force_params_group, "Gain Scaling (0-2):", 0.0, 2.0,
-            CONFIG.rotation_force.force_mode_gain_scaling, 2, 0.1, tooltip=TT["force_mode_gain_scaling"]
-        )
         self.force_control_dt_input = self._add_spin(
             self.force_params_group, "Control Loop dt (s):", 0.001, 0.1,
             CONFIG.rotation_force.control_loop_dt, 3, 0.001, tooltip=TT["control_loop_dt"]
@@ -189,6 +203,36 @@ class AxialRotationWidget(QWidget):
             self.force_params_group, "Rotation Speed Factor:", 0.1, 50.0,
             CONFIG.rotation_force.rotation_speed_factor, 1, 0.5, tooltip=TT["rotation_speed_factor"]
         )
+
+        self.force_z_limit_group = CollapsibleGroupBox("Z Limit Control", expanded=False)
+        self.force_z_limit_input = self._add_spin(
+            self.force_z_limit_group, "Limit (m/s):", 0.001, 0.5,
+            CONFIG.rotation_force.z_limit.force_mode_z_limit, 3, 0.01, tooltip=TT["force_mode_z_limit"]
+        )
+        self.force_z_damping_input = self._add_spin(
+            self.force_z_limit_group, "Damping (0-1):", 0.0, 1.0,
+            CONFIG.rotation_force.z_limit.force_mode_damping, 2, 0.05, tooltip=TT["force_mode_damping"]
+        )
+        self.force_z_gain_input = self._add_spin(
+            self.force_z_limit_group, "Gain Scaling (0-2):", 0.0, 2.0,
+            CONFIG.rotation_force.z_limit.force_mode_gain_scaling, 2, 0.1, tooltip=TT["force_mode_gain_scaling"]
+        )
+        self.force_params_group.addWidget(self.force_z_limit_group)
+
+        self.force_xy_limit_group = CollapsibleGroupBox("XY Limit Control", expanded=False)
+        self.force_xy_limit_input = self._add_spin(
+            self.force_xy_limit_group, "Limit (m/s):", 0.001, 0.5,
+            CONFIG.rotation_force.xy_limit.force_mode_xy_limit, 3, 0.01, tooltip=TT["force_mode_xy_limit"]
+        )
+        self.force_xy_damping_input = self._add_spin(
+            self.force_xy_limit_group, "Damping (0-1):", 0.0, 1.0,
+            CONFIG.rotation_force.xy_limit.force_mode_damping, 2, 0.05, tooltip=TT["force_mode_damping"]
+        )
+        self.force_xy_gain_input = self._add_spin(
+            self.force_xy_limit_group, "Gain Scaling (0-2):", 0.0, 2.0,
+            CONFIG.rotation_force.xy_limit.force_mode_gain_scaling, 2, 0.1, tooltip=TT["force_mode_gain_scaling"]
+        )
+        self.force_params_group.addWidget(self.force_xy_limit_group)
 
         layout.addWidget(self.force_params_group)
 
@@ -302,8 +346,8 @@ class AxialRotationWidget(QWidget):
         layout.addLayout(button_layout)
         layout.addStretch()
 
-        # Apply initial visibility for Direct method
-        self._apply_method_visibility("direct")
+        # Apply initial visibility for selected method
+        self._apply_method_visibility(self.method_combo.currentData())
 
     # =====================================================
     # HELPERS
@@ -542,8 +586,11 @@ class AxialRotationWidget(QWidget):
 
             method_kwargs = {
                 'force_mode_z_limit': self.direct_z_limit_input.value(),
-                'force_mode_damping': self.direct_damping_input.value(),
-                'force_mode_gain_scaling': self.direct_gain_input.value(),
+                'force_mode_z_damping': self.direct_z_damping_input.value(),
+                'force_mode_z_gain_scaling': self.direct_z_gain_input.value(),
+                'force_mode_xy_limit': self.direct_xy_limit_input.value(),
+                'force_mode_xy_damping': self.direct_xy_damping_input.value(),
+                'force_mode_xy_gain_scaling': self.direct_xy_gain_input.value(),
             }
 
             self.app.async_motion_runner = AsyncMotionRunner(
@@ -555,6 +602,7 @@ class AxialRotationWidget(QWidget):
                 speed=speed,
                 accel=accel,
                 max_moment=max_moment,
+                direction=self.direction_group.checkedButton().direction,
                 motionLogFile=getLogfilePath(log_filename),
                 **method_kwargs
             )
@@ -593,17 +641,21 @@ class AxialRotationWidget(QWidget):
         # Build method-specific kwargs
         if method == "hybrid":
             method_kwargs = {
-                'force_mode_xy_limit': self.hybrid_xy_limit_input.value(),
                 'force_mode_z_limit': self.hybrid_z_limit_input.value(),
-                'force_mode_damping': self.hybrid_damping_input.value(),
-                'force_mode_gain_scaling': self.hybrid_gain_input.value(),
+                'force_mode_z_damping': self.hybrid_z_damping_input.value(),
+                'force_mode_z_gain_scaling': self.hybrid_z_gain_input.value(),
+                'force_mode_xy_limit': self.hybrid_xy_limit_input.value(),
+                'force_mode_xy_damping': self.hybrid_xy_damping_input.value(),
+                'force_mode_xy_gain_scaling': self.hybrid_xy_gain_input.value(),
             }
         else:  # force
             method_kwargs = {
-                'force_mode_xy_limit': self.force_xy_limit_input.value(),
                 'force_mode_z_limit': self.force_z_limit_input.value(),
-                'force_mode_damping': self.force_damping_input.value(),
-                'force_mode_gain_scaling': self.force_gain_input.value(),
+                'force_mode_z_damping': self.force_z_damping_input.value(),
+                'force_mode_z_gain_scaling': self.force_z_gain_input.value(),
+                'force_mode_xy_limit': self.force_xy_limit_input.value(),
+                'force_mode_xy_damping': self.force_xy_damping_input.value(),
+                'force_mode_xy_gain_scaling': self.force_xy_gain_input.value(),
                 'control_loop_dt': self.force_control_dt_input.value(),
                 'rotation_speed_factor': self.force_rot_speed_factor_input.value(),
             }

@@ -18,6 +18,12 @@ def execute(self):
     """Execute new-x movement using hybrid approach (force mode + moveL)."""
     startPosition = self.kwargs.get('start_position')
     newPose = self.kwargs.get('new_pose')
+    if startPosition is None:
+        self.movement_progress.emit("Error: start_position is required")
+        return
+    if newPose is None:
+        self.movement_progress.emit("Error: new_pose is required")
+        return
     speed = self.kwargs.get('speed', CONFIG.new_x.speed)
     accel = self.kwargs.get('accel', CONFIG.new_x.acceleration)
     forceLimitY = self.kwargs.get('force_limit_y', CONFIG.new_x.force_limit_y)

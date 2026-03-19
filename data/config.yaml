@@ -15,7 +15,7 @@ robot:
   ip: "192.168.1.100"                        # Robot IP address on the network
   # Default home position [x, y, z, rx, ry, rz] in metres / radians.
   # Updated automatically when you "Set current as home" from the UI.
-  home_position: [0.3769, -0.9978, 0.1021, -3.1302, 0.0912, 0.0515]
+  home_position: [0.156, -0.7614, 0.0816, 2.1366, 2.1069, -0.2425]
   # TCP offset [x, y, z, rx, ry, rz] — applied on connect.
   # Updated automatically when you "Hardcode current TCP as default" from the UI.
   tcp_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -209,29 +209,42 @@ rotation:
   speed: 0.03                               # Movement speed (m/s)
   acceleration: 0.1                         # Movement acceleration (m/s^2)
   max_moment: 3.0                            # Moment safety limit (Nm)
-  force_mode_z_limit: 0.05                  # Max Z velocity for compliance (m/s)
-  force_mode_damping: 0.1                    # Force mode damping factor (0–1)
-  force_mode_gain_scaling: 1.0               # Force mode gain scaling (0–2)
+  z_limit:
+    force_mode_z_limit: 0.05                 # Max Z velocity for compliance (m/s)
+    force_mode_damping: 0.1                  # Force mode damping factor (0–1)
+    force_mode_gain_scaling: 1.0             # Force mode gain scaling (0–2)
+  xy_limit:
+    force_mode_xy_limit: 0.05               # Max XY velocity for compliance (m/s)
+    force_mode_damping: 0.1                  # Force mode damping factor (0–1)
+    force_mode_gain_scaling: 1.0            # Force mode gain scaling (0–2)
 
 # ---------------------------------------------------------------------------
 # Rotation — Hybrid method (forceMode XY/Z compliance + moveL trajectory)
 # ---------------------------------------------------------------------------
 rotation_hybrid:
-  force_mode_xy_limit: 0.05                  # Max XY velocity for compliance (m/s)
-  force_mode_z_limit: 0.05                   # Max Z velocity for compliance (m/s)
-  force_mode_damping: 0.1                     # Force mode damping factor (0–1)
-  force_mode_gain_scaling: 1.0               # Force mode gain scaling (0–2)
+  z_limit:
+    force_mode_z_limit: 0.05                 # Max Z velocity for compliance (m/s)
+    force_mode_damping: 0.1                  # Force mode damping factor (0–1)
+    force_mode_gain_scaling: 1.0             # Force mode gain scaling (0–2)
+  xy_limit:
+    force_mode_xy_limit: 0.05                # Max XY velocity for compliance (m/s)
+    force_mode_damping: 0.1                  # Force mode damping factor (0–1)
+    force_mode_gain_scaling: 1.0             # Force mode gain scaling (0–2)
 
 # ---------------------------------------------------------------------------
 # Rotation — Force method (full translational compliance + speedL loop)
 # ---------------------------------------------------------------------------
 rotation_force:
-  force_mode_xy_limit: 0.05                  # Max XY velocity for compliance (m/s)
-  force_mode_z_limit: 0.05                   # Max Z velocity for compliance (m/s)
-  force_mode_damping: 0.1                    # Force mode damping factor (0–1)
-  force_mode_gain_scaling: 1.0               # Force mode gain scaling (0–2)
   control_loop_dt: 0.008                     # Control loop period (s)
   rotation_speed_factor: 5.0                 # Linear-to-angular speed conversion factor
+  z_limit:
+    force_mode_z_limit: 0.05                 # Max Z velocity for compliance (m/s)
+    force_mode_damping: 0.1                  # Force mode damping factor (0–1)
+    force_mode_gain_scaling: 1.0             # Force mode gain scaling (0–2)
+  xy_limit:
+    force_mode_xy_limit: 0.05                # Max XY velocity for compliance (m/s)
+    force_mode_damping: 0.1                  # Force mode damping factor (0–1)
+    force_mode_gain_scaling: 1.0             # Force mode gain scaling (0–2)
 
 # ---------------------------------------------------------------------------
 # Visualization window

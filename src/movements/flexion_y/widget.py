@@ -879,10 +879,10 @@ class FlexionYWidget(QWidget):
         
         try:
             filepath = method_module.get_path_filename(direction)
-            data = np.load(filepath)
-            waypoints = data['poses']
-            timestamps = data['timestamps']
-            
+            with np.load(filepath) as data:
+                waypoints = np.array(data['poses'])
+                timestamps = np.array(data['timestamps'])
+
             original_count = len(waypoints)
             processed_waypoints, processed_timestamps = process_func(waypoints, timestamps)
             

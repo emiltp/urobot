@@ -130,8 +130,8 @@ def load_tcp_offset() -> list:
     if not os.path.exists(OFFSET_FILE):
         return None
     try:
-        data = np.load(OFFSET_FILE)
-        return list(data['offset'])
+        with np.load(OFFSET_FILE) as data:
+            return list(data['offset'])
     except Exception as e:
         print(f"Warning: Could not load TCP offset: {e}")
         return None

@@ -288,8 +288,8 @@ class FreemoveWidget(QWidget):
         if has_path and not self._collecting:
             try:
                 import numpy as np
-                data = np.load(freemove.get_path_filename())
-                waypoints = data['poses']
+                with np.load(freemove.get_path_filename()) as data:
+                    waypoints = np.array(data['poses'])
                 distance = calculateWaypointsDistance(waypoints)
                 self.status_label.setText(f"Path: {len(waypoints)} waypoints ({distance*1000:.1f}mm)")
             except Exception:
@@ -346,10 +346,10 @@ class FreemoveWidget(QWidget):
         
         try:
             filepath = freemove.get_path_filename()
-            data = np.load(filepath)
-            waypoints = data['poses']
-            timestamps = data['timestamps']
-            
+            with np.load(filepath) as data:
+                waypoints = np.array(data['poses'])
+                timestamps = np.array(data['timestamps'])
+
             original_count = len(waypoints)
             processed_waypoints, processed_timestamps = process_func(waypoints, timestamps)
             

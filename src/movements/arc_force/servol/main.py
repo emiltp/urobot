@@ -19,6 +19,18 @@ def execute(self):
     ref_pose = self.kwargs.get('ref_pose')
     end_pose = self.kwargs.get('end_pose')
     angle_rad = self.kwargs.get('angle_rad')
+    if start_position is None:
+        self.movement_progress.emit("Error: start_position is required")
+        return
+    if ref_pose is None:
+        self.movement_progress.emit("Error: ref_pose is required")
+        return
+    if end_pose is None:
+        self.movement_progress.emit("Error: end_pose is required")
+        return
+    if angle_rad is None:
+        self.movement_progress.emit("Error: angle_rad is required")
+        return
     axis = self.kwargs.get('axis', 'z')
     direction_multiplier = self.kwargs.get('direction_multiplier', 1)
     speed = self.kwargs.get('speed', CONFIG.arc_force.speed)
@@ -81,10 +93,12 @@ def execute(self):
         start_time = time.time()
         last_waypoint_time = start_time
         waypoint_interval = 0.05
+        tcp_offset = self.robot.getTcpOffset() if self.robot else None
 
         # Target wrench: zero for null, or initial (base frame) transformed to current TCP frame
+        flange_pose = self.robot._calculateFlangePoseFromTcp(current_pose, tcp_offset) if tcp_offset else None
         target_wrench = (
-            transform_wrench(current_pose, initial_wrench_base)
+            transform_wrench(current_pose, initial_wrench_base, flange_pose)
             if initial_wrench_base is not None
             else [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         )
@@ -97,8 +111,9 @@ def execute(self):
                 break
 
             # Update task frame and target (initial in base transformed to current TCP)
+            flange_pose = self.robot._calculateFlangePoseFromTcp(current_pose, tcp_offset) if tcp_offset else None
             target_wrench = (
-                transform_wrench(current_pose, initial_wrench_base)
+                transform_wrench(current_pose, initial_wrench_base, flange_pose)
                 if initial_wrench_base is not None
                 else [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             )
@@ -115,15 +130,15 @@ def execute(self):
                 wrench_base = wrench_base + [0.0] * (6 - len(wrench_base))
             if initial_wrench_base is not None:
                 wrench_base = [c - i for c, i in zip(wrench_base, initial_wrench_base)]
-            wrench_tcp = transform_wrench(current_pose, wrench_base)
+            wrench_tcp = transform_wrench(current_pose, wrench_base, flange_pose)
             fy = wrench_tcp[1]
             mx = wrench_tcp[3]
 
             fy_exceeded = (direction_multiplier > 0 and fy > fy_tolerance) or (
                 direction_multiplier < 0 and fy < -fy_tolerance
             )
-            mx_exceeded = (direction_multiplier > 0 and mx > max_moment) or (
-                direction_multiplier < 0 and mx < -max_moment
+            mx_exceeded = (direction_multiplier > 0 and mx < -max_moment) or (
+                direction_multiplier < 0 and mx > max_moment
             )
             if fy_exceeded:
                 self.movement_progress.emit(f"Fy (tangential) {fy:.2f} N exceeds tolerance {fy_tolerance} N. Stopping.")
