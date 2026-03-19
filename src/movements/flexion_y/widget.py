@@ -62,11 +62,11 @@ class FlexionYWidget(QWidget):
         self.direction_group = QButtonGroup(self)
         self.direction_group.setExclusive(True)
         
-        self.left_arrow = ArrowButton("left")
+        self.left_arrow = ArrowButton("left", label="LEFT")
         self.left_arrow.setFixedSize(80, 55)
-        self.circle = CircleWidget()
+        self.circle = CircleWidget(top_label="FRONT", bottom_label="BACK")
         self.circle.setFixedSize(50, 70)
-        self.right_arrow = ArrowButton("right")
+        self.right_arrow = ArrowButton("right", label="RIGHT")
         self.right_arrow.setFixedSize(80, 55)
         
         self.direction_group.addButton(self.left_arrow)

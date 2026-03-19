@@ -8,6 +8,9 @@ Home is not in the registry; import separately: from src.movements import home
 import importlib
 
 MOTIONS = [
+    ("flexion_x", "Flexion (x) "),
+    ("flexion_y", "Flexion (y)"),
+    ("axial_rotation", "Axial Rotation"),
     ("arc_x", "Arc (x)"),
     ("arc_y", "Arc (y)"),
     ("arc_z", "Arc (z)"),
@@ -15,9 +18,6 @@ MOTIONS = [
     ("new_y", "New (y)"),
     ("new_z", "New (z)"),
     ("freemove", "Free Move"),
-    ("flexion_x", "Flexion (x) "),
-    ("flexion_y", "Flexion (y)"),
-    ("axial_rotation", "Axial Rotation"),
     ("arc_force", "Arc (Fz-constrained)"),
 ]
 

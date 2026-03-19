@@ -15,7 +15,7 @@ robot:
   ip: "192.168.1.100"                        # Robot IP address on the network
   # Default home position [x, y, z, rx, ry, rz] in metres / radians.
   # Updated automatically when you "Set current as home" from the UI.
-  home_position: [0.156, -0.7614, 0.0816, 2.1366, 2.1069, -0.2425]
+  home_position: [0.1417, -0.9249, 0.017, -2.291, -2.1363, 0.0022]
   # TCP offset [x, y, z, rx, ry, rz] — applied on connect.
   # Updated automatically when you "Hardcode current TCP as default" from the UI.
   tcp_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

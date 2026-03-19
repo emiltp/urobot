@@ -121,12 +121,12 @@ def execute(self):
             # Directional moment limits (like flexion_x/flexion_y)
             momentExceeded = False
             if direction == 'left':
-                momentLimitDisplay = f"limit: < {momentLimitZ:.2f} Nm"
-                if momentLimitZ > 0 and momentZTcp > momentLimitZ:
-                    momentExceeded = True
-            elif direction == 'right':
                 momentLimitDisplay = f"limit: > -{momentLimitZ:.2f} Nm"
                 if momentLimitZ > 0 and momentZTcp < -momentLimitZ:
+                    momentExceeded = True
+            elif direction == 'right':
+                momentLimitDisplay = f"limit: < {momentLimitZ:.2f} Nm"
+                if momentLimitZ > 0 and momentZTcp > momentLimitZ:
                     momentExceeded = True
             else:
                 momentLimitDisplay = f"limit: ±{momentLimitZ:.2f} Nm"

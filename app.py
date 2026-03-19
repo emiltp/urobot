@@ -497,7 +497,7 @@ class TCPVisualizer(QMainWindow):
         # Dropdown: Ref frame relative to TCP or flange
         self.ref_frame_relative_combo = QComboBox()
         self.ref_frame_relative_combo.addItems(["TCP", "Flange"])
-        self.ref_frame_relative_combo.setCurrentIndex(0)
+        self.ref_frame_relative_combo.setCurrentIndex(1)
         self.ref_frame_relative_combo.setToolTip("Ref frame offset is applied relative to TCP or Flange")
         self.ref_frame_relative_combo.setMinimumWidth(90)
         self.ref_frame_relative_combo.setItemDelegate(QStyledItemDelegate(self.ref_frame_relative_combo))
