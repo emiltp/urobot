@@ -60,9 +60,12 @@ class AsyncMotionRunner(QThread):
                 blend: Blend radius in meters
                 traverseMethod: 'moveLPath', 'servoPath', or 'movePath'
                 enableForceControl: Enable force limit checking
-                forceLimit: Force limit in N
-                forceAxis: 'x' or 'y' for force monitoring
+                forceLimit: Force limit in N (or Nm for Mz)
+                forceAxis: 'x', 'y', or 'mz' for force/moment monitoring
                 direction: 'left' or 'right' for direction-dependent limits
+                forceFrame: 'tcp' or 'ref' for translational x/y (flexion uses 'ref')
+                momentLimit: Optional TCP Mx/My limit in Nm (flexion)
+                momentAxis: 'mx' or 'my' when momentLimit is set
                 autoReturn: Whether to auto-return after traversal (default: False)
                 motionLogFile: Optional path for motion logging
         """
@@ -213,7 +216,10 @@ class AsyncMotionRunner(QThread):
                 enableForceControl=kwargs.get('enableForceControl'),
                 forceLimit=kwargs.get('forceLimit'),
                 forceAxis=kwargs.get('forceAxis'),
-                direction=kwargs.get('direction'))
+                direction=kwargs.get('direction'),
+                forceFrame=kwargs.get('forceFrame', 'tcp'),
+                momentLimit=kwargs.get('momentLimit'),
+                momentAxis=kwargs.get('momentAxis'))
             
             # Store traveled path for potential return
             if success:

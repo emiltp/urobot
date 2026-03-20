@@ -15,7 +15,7 @@ robot:
   ip: "192.168.1.100"                        # Robot IP address on the network
   # Default home position [x, y, z, rx, ry, rz] in metres / radians.
   # Updated automatically when you "Set current as home" from the UI.
-  home_position: [0.1417, -0.9249, 0.017, -2.291, -2.1363, 0.0022]
+  home_position: [0.1011, -0.964, 0.03, 1.5061, 2.7428, 0.0039]
   # TCP offset [x, y, z, rx, ry, rz] — applied on connect.
   # Updated automatically when you "Hardcode current TCP as default" from the UI.
   tcp_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -55,8 +55,8 @@ flexion_x:
   angle: 90.0                               # Target rotation angle (deg)
   speed: 0.01                               # Collection movement speed (m/s)
   acceleration: 0.05                         # Collection acceleration (m/s^2)
-  force_limit_y: 10.0                        # Fy safety limit in TCP frame (N)
-  max_moment: 3.0                            # Max moment Mx before stop (Nm)
+  force_limit_y: 150.0                        # Fy safety limit in TCP frame (N)
+  max_moment: 10.0                            # Max moment Mx before stop (Nm)
 
 flexion_x_original:
   force_control_gain: 0.002                  # Z adjustment per unit Fz (m/N)
@@ -66,13 +66,13 @@ flexion_x_original:
 
 flexion_x_hybrid:
   force_mode_z_limit: 0.05                   # Max Z velocity for compliance (m/s)
-  force_mode_damping: 0.1                    # Force mode damping factor (0–1)
-  force_mode_gain_scaling: 1.0               # Force mode gain scaling (0–2)
+  force_mode_damping: 0.01                    # Force mode damping factor (0–1)
+  force_mode_gain_scaling: 2.0               # Force mode gain scaling (0–2)
 
 flexion_x_force:
   force_mode_z_limit: 0.05                   # Max Z velocity for compliance (m/s)
-  force_mode_damping: 0.1                    # Force mode damping factor (0–1)
-  force_mode_gain_scaling: 0.5               # Force mode gain scaling (0–2)
+  force_mode_damping: 0.01                    # Force mode damping factor (0–1)
+  force_mode_gain_scaling: 2.0               # Force mode gain scaling (0–2)
   control_loop_dt: 0.008                     # Control loop period (s)
   rotation_speed_factor: 5.0                 # Linear-to-angular speed conversion factor
 
@@ -83,8 +83,8 @@ flexion_y:
   angle: 90.0                               # Target rotation angle (deg)
   speed: 0.01                               # Collection movement speed (m/s)
   acceleration: 0.05                         # Collection acceleration (m/s^2)
-  force_limit_x: 10.0                        # Fx safety limit in TCP frame (N)
-  max_moment: 3.0                            # Max moment My before stop (Nm)
+  force_limit_x: 150.0                        # Fx safety limit in TCP frame (N)
+  max_moment: 4.0                            # Max moment My before stop (Nm)
 
 flexion_y_original:
   force_control_gain: 0.002                  # Z adjustment per unit Fz (m/N)
@@ -94,13 +94,13 @@ flexion_y_original:
 
 flexion_y_hybrid:
   force_mode_z_limit: 0.05                   # Max Z velocity for compliance (m/s)
-  force_mode_damping: 0.1                    # Force mode damping factor (0–1)
-  force_mode_gain_scaling: 1.0               # Force mode gain scaling (0–2)
+  force_mode_damping: 0.01                    # Force mode damping factor (0–1)
+  force_mode_gain_scaling: 2.0               # Force mode gain scaling (0–2)
 
 flexion_y_force:
   force_mode_z_limit: 0.05                   # Max Z velocity for compliance (m/s)
-  force_mode_damping: 0.1                    # Force mode damping factor (0–1)
-  force_mode_gain_scaling: 0.5               # Force mode gain scaling (0–2)
+  force_mode_damping: 0.01                    # Force mode damping factor (0–1)
+  force_mode_gain_scaling: 2.0               # Force mode gain scaling (0–2)
   control_loop_dt: 0.008                     # Control loop period (s)
   rotation_speed_factor: 5.0                 # Linear-to-angular speed conversion factor
 
@@ -208,19 +208,21 @@ rotation:
   angle: 90.0                               # Target rotation angle (deg)
   speed: 0.03                               # Movement speed (m/s)
   acceleration: 0.1                         # Movement acceleration (m/s^2)
-  max_moment: 3.0                            # Moment safety limit (Nm)
+  max_moment: 3.5                            # Moment safety limit (Nm)
+  # Z/XY force-mode limits below apply to Direct, Hybrid, and Force (UI + runtime defaults).
   z_limit:
     force_mode_z_limit: 0.05                 # Max Z velocity for compliance (m/s)
     force_mode_damping: 0.1                  # Force mode damping factor (0–1)
     force_mode_gain_scaling: 1.0             # Force mode gain scaling (0–2)
   xy_limit:
     force_mode_xy_limit: 0.05               # Max XY velocity for compliance (m/s)
-    force_mode_damping: 0.1                  # Force mode damping factor (0–1)
-    force_mode_gain_scaling: 1.0            # Force mode gain scaling (0–2)
+    force_mode_damping: 0.01                  # Force mode damping factor (0–1)
+    force_mode_gain_scaling: 2.0            # Force mode gain scaling (0–2)
 
 # ---------------------------------------------------------------------------
 # Rotation — Hybrid method (forceMode XY/Z compliance + moveL trajectory)
 # ---------------------------------------------------------------------------
+# Optional: kept for documentation; axial rotation UI and code use rotation.z_limit / rotation.xy_limit above.
 rotation_hybrid:
   z_limit:
     force_mode_z_limit: 0.05                 # Max Z velocity for compliance (m/s)
@@ -234,6 +236,7 @@ rotation_hybrid:
 # ---------------------------------------------------------------------------
 # Rotation — Force method (full translational compliance + speedL loop)
 # ---------------------------------------------------------------------------
+# Z/XY force limits: see rotation.z_limit / rotation.xy_limit. This block supplies dt + speed factor only.
 rotation_force:
   control_loop_dt: 0.008                     # Control loop period (s)
   rotation_speed_factor: 5.0                 # Linear-to-angular speed conversion factor
@@ -278,7 +281,7 @@ traverse_movelpath:
 # Traverse — servoPath method (precise timing with servo commands)
 # ---------------------------------------------------------------------------
 traverse_servopath:
-  speed: 0.01                               # Traverse speed (m/s)
+  speed: 0.005                               # Traverse speed (m/s)
   acceleration: 0.1                          # Traverse acceleration (m/s^2)
   dt: 0.008                                 # Control loop period (s)
   lookahead_time: 0.2                        # servoL lookahead time (s)
@@ -289,7 +292,7 @@ traverse_servopath:
 # Traverse — movePath method (single moveL straight line to end)
 # ---------------------------------------------------------------------------
 traverse_movepath:
-  speed: 0.03                                # Traverse speed (m/s)
+  speed: 0.02                                # Traverse speed (m/s)
   acceleration: 0.5                          # Traverse acceleration (m/s^2)
 
 # ---------------------------------------------------------------------------

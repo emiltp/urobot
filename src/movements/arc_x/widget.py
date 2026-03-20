@@ -87,7 +87,7 @@ class ArcXWidget(QWidget):
             arc_cfg.max_moment, 2, 0.1, TT["arc_force_max_moment"]
         )
         self.fy_tolerance_input = self._add_spin(
-            self.movement_group, "Max TCP Fy (N):", 0.5, 50.0,
+            self.movement_group, "Max TCP Fy (N):", 0.5, 200.0,
             arc_cfg.fy_tolerance, 1, 1.0, TT["fy_tolerance"]
         )
         layout.addWidget(self.movement_group)

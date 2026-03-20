@@ -144,7 +144,7 @@ class NewYWidget(QWidget):
         fx_layout = QHBoxLayout()
         fx_layout.addWidget(QLabel("Max TCP Fx (N):"))
         self.fx_limit_input = QDoubleSpinBox()
-        self.fx_limit_input.setRange(0.1, 100.0)
+        self.fx_limit_input.setRange(0.1, 200.0)
         self.fx_limit_input.setDecimals(2)
         self.fx_limit_input.setValue(CONFIG.new_y.force_limit_x)
         self.fx_limit_input.setSingleStep(0.1)
@@ -452,7 +452,7 @@ class NewYWidget(QWidget):
         self.replay_group.addLayout(flange_process_layout)
         
         self.end_force_control_checkbox = QCheckBox("Enable End Force Control")
-        self.end_force_control_checkbox.setChecked(True)
+        self.end_force_control_checkbox.setChecked(False)
         self.replay_group.addWidget(self.end_force_control_checkbox)
         
         layout.addWidget(self.replay_group)

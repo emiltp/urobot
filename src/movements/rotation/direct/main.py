@@ -37,19 +37,15 @@ def execute(self):
             elif filename.startswith('right.'):
                 direction = 'right'
     
-    # Force mode parameters (support nested z_limit/xy_limit config)
-    z_cfg = getattr(CONFIG.rotation, 'z_limit', None)
-    xy_cfg = getattr(CONFIG.rotation, 'xy_limit', None)
-    if z_cfg is None:
-        z_cfg = CONFIG.rotation
-    if xy_cfg is None:
-        xy_cfg = CONFIG.rotation
-    forceModeXYLimit = self.kwargs.get('force_mode_xy_limit', getattr(xy_cfg, 'force_mode_xy_limit', 0.05))
-    forceModeZLimit = self.kwargs.get('force_mode_z_limit', getattr(z_cfg, 'force_mode_z_limit', 0.05))
-    zDamping = self.kwargs.get('force_mode_z_damping', getattr(z_cfg, 'force_mode_damping', 0.1))
-    xyDamping = self.kwargs.get('force_mode_xy_damping', getattr(xy_cfg, 'force_mode_damping', 0.1))
-    zGain = self.kwargs.get('force_mode_z_gain_scaling', getattr(z_cfg, 'force_mode_gain_scaling', 1.0))
-    xyGain = self.kwargs.get('force_mode_xy_gain_scaling', getattr(xy_cfg, 'force_mode_gain_scaling', 1.0))
+    # Force mode parameters (rotation.z_limit / rotation.xy_limit in config.yaml)
+    z_cfg = CONFIG.rotation.z_limit
+    xy_cfg = CONFIG.rotation.xy_limit
+    forceModeXYLimit = self.kwargs.get('force_mode_xy_limit', xy_cfg.force_mode_xy_limit)
+    forceModeZLimit = self.kwargs.get('force_mode_z_limit', z_cfg.force_mode_z_limit)
+    zDamping = self.kwargs.get('force_mode_z_damping', z_cfg.force_mode_damping)
+    xyDamping = self.kwargs.get('force_mode_xy_damping', xy_cfg.force_mode_damping)
+    zGain = self.kwargs.get('force_mode_z_gain_scaling', z_cfg.force_mode_gain_scaling)
+    xyGain = self.kwargs.get('force_mode_xy_gain_scaling', xy_cfg.force_mode_gain_scaling)
     forceModeDamping = (zDamping + xyDamping) / 2
     forceModeGainScaling = (zGain + xyGain) / 2
     

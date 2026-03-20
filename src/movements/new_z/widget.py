@@ -525,7 +525,7 @@ class NewZWidget(QWidget):
         self.replay_group.addLayout(flange_process_layout)
         
         self.end_force_control_checkbox = QCheckBox("Enable End Force Control")
-        self.end_force_control_checkbox.setChecked(True)
+        self.end_force_control_checkbox.setChecked(False)
         self.replay_group.addWidget(self.end_force_control_checkbox)
         
         layout.addWidget(self.replay_group)

@@ -35,9 +35,9 @@ def execute(self):
         elif filename.startswith('right.'):
             direction = 'right'
 
-    # Force mode parameters
-    z_cfg = CONFIG.rotation_hybrid.z_limit
-    xy_cfg = CONFIG.rotation_hybrid.xy_limit
+    # Force mode parameters (defaults from rotation: z_limit / xy_limit in config.yaml)
+    z_cfg = CONFIG.rotation.z_limit
+    xy_cfg = CONFIG.rotation.xy_limit
     forceModeXYLimit = self.kwargs.get('force_mode_xy_limit', xy_cfg.force_mode_xy_limit)
     forceModeZLimit = self.kwargs.get('force_mode_z_limit', z_cfg.force_mode_z_limit)
     zDamping = self.kwargs.get('force_mode_z_damping', z_cfg.force_mode_damping)

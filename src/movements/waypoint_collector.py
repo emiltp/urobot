@@ -214,7 +214,10 @@ class WaypointCollector:
                  enableForceControl: Optional[bool] = False,
                  forceLimit: Optional[float] = None,
                  forceAxis: Optional[str] = None,
-                 direction: Optional[str] = None) -> Tuple[bool, Optional[np.ndarray], int]:
+                 direction: Optional[str] = None,
+                 forceFrame: str = 'tcp',
+                 momentLimit: Optional[float] = None,
+                 momentAxis: Optional[str] = None) -> Tuple[bool, Optional[np.ndarray], int]:
         """Traverse waypoints with optional force control.
         
         Args:
@@ -223,9 +226,12 @@ class WaypointCollector:
             blend: Blend radius in meters for smooth transitions
             traverseMethod: 'moveLPath', 'servoPath', or 'movePath'
             enableForceControl: Enable force control
-            forceLimit: Force limit in N
-            forceAxis: Force axis (x or y)
+            forceLimit: Force or moment limit (N for x/y, Nm for mz)
+            forceAxis: 'x', 'y', or 'mz'
             direction: Direction (left or right)
+            forceFrame: 'tcp' or 'ref' for translational x/y checks (flexion uses 'ref')
+            momentLimit: Optional TCP moment limit in Nm (flexion Mx/My; 0 or None disables)
+            momentAxis: 'mx' or 'my' when momentLimit is used
 
         Returns: (success, traveledWaypoints, stopIndex)
         """
@@ -281,7 +287,7 @@ class WaypointCollector:
             print(f"  gain: {CONFIG.traverse_servopath.gain}")
             print(f"  ramp_up_time: {CONFIG.traverse_servopath.ramp_up_time} s")
             if enableForceControl:
-                print(f"Force control: {forceAxis} axis, limit={forceLimit} N, direction={direction}")
+                print(f"Force control: {forceAxis} axis, limit={forceLimit}, frame={forceFrame}, direction={direction}")
             return self._executeServoPath(
                 waypoints, timestamps,
                 speed=effectiveSpeed,
@@ -289,6 +295,9 @@ class WaypointCollector:
                 forceLimit=forceLimit,
                 forceAxis=forceAxis,
                 direction=direction,
+                forceFrame=forceFrame,
+                momentLimit=momentLimit,
+                momentAxis=momentAxis,
                 isBackwardTraverse=False
             )
         elif traverseMethod == 'movePath':
@@ -297,7 +306,7 @@ class WaypointCollector:
             print(f"Speed: {effectiveSpeed} m/s")
             print(f"Acceleration: {effectiveAccel} m/s²")
             if enableForceControl:
-                print(f"Force control: {forceAxis} axis, limit={forceLimit} N, direction={direction}")
+                print(f"Force control: {forceAxis} axis, limit={forceLimit}, frame={forceFrame}, direction={direction}")
             return self._executeMovePath(
                 waypoints, timestamps,
                 speed=effectiveSpeed,
@@ -306,6 +315,9 @@ class WaypointCollector:
                 forceLimit=forceLimit,
                 forceAxis=forceAxis,
                 direction=direction,
+                forceFrame=forceFrame,
+                momentLimit=momentLimit,
+                momentAxis=momentAxis,
                 isBackwardTraverse=False
             )
         else:  # moveLPath (default)
@@ -316,7 +328,7 @@ class WaypointCollector:
             print(f"Acceleration: {effectiveAccel} m/s²")
             print(f"Blend radius: {effectiveBlend} m")
             if enableForceControl:
-                print(f"Force control: {forceAxis} axis, limit={forceLimit} N, direction={direction}")
+                print(f"Force control: {forceAxis} axis, limit={forceLimit}, frame={forceFrame}, direction={direction}")
             return self._executeMoveLPath(
                 waypoints, timestamps,
                 speed=effectiveSpeed,
@@ -326,6 +338,9 @@ class WaypointCollector:
                 forceLimit=forceLimit,
                 forceAxis=forceAxis,
                 direction=direction,
+                forceFrame=forceFrame,
+                momentLimit=momentLimit,
+                momentAxis=momentAxis,
                 isBackwardTraverse=False
             )
     
@@ -615,9 +630,12 @@ class WaypointCollector:
                          speed: float,
                          acceleration: float = 0.1,
                          enableForceControl: bool = False,
-                         forceLimit: float = 10.0,
+                         forceLimit: Optional[float] = 10.0,
                          forceAxis: str = 'y',
                          direction: Optional[str] = None,
+                         forceFrame: str = 'tcp',
+                         momentLimit: Optional[float] = None,
+                         momentAxis: Optional[str] = None,
                          isBackwardTraverse: bool = False) -> bool:
         """Execute path traversal using moveL with async monitoring.
         
@@ -735,7 +753,9 @@ class WaypointCollector:
                 
                 # Force control (only during forward traversal)
                 if enableForceControl and not isBackwardTraverse and (currentTime - lastForceCheck) >= forceCheckInterval:
-                    exceeded, msg = self._checkForceLimit(forceLimit, forceAxis, direction)
+                    exceeded, msg = self._checkForceLimit(
+                        forceLimit, forceAxis, direction,
+                        force_frame=forceFrame, moment_limit=momentLimit, moment_axis=momentAxis)
                     if self.progressCallback and msg:
                         self.progressCallback(msg)
                     if exceeded:
@@ -789,9 +809,12 @@ class WaypointCollector:
                           acceleration: float = 0.5,
                           blend: float = 0.01,
                           enableForceControl: bool = False,
-                          forceLimit: float = 10.0,
+                          forceLimit: Optional[float] = 10.0,
                           forceAxis: str = 'y',
                           direction: Optional[str] = None,
+                          forceFrame: str = 'tcp',
+                          momentLimit: Optional[float] = None,
+                          momentAxis: Optional[str] = None,
                           isBackwardTraverse: bool = False) -> bool:
         """Execute path traversal using moveL with path parameter.
         
@@ -920,7 +943,9 @@ class WaypointCollector:
                 
                 # Force control (only during forward traversal)
                 if enableForceControl and not isBackwardTraverse and (currentTime - lastForceCheck) >= forceCheckInterval:
-                    exceeded, msg = self._checkForceLimit(forceLimit, forceAxis, direction)
+                    exceeded, msg = self._checkForceLimit(
+                        forceLimit, forceAxis, direction,
+                        force_frame=forceFrame, moment_limit=momentLimit, moment_axis=momentAxis)
                     if self.progressCallback and msg:
                         self.progressCallback(msg)
                     if exceeded:
@@ -972,9 +997,12 @@ class WaypointCollector:
     def _executeServoPath(self, waypoints: np.ndarray, timestamps: np.ndarray,
                           speed: float,
                           enableForceControl: bool = False,
-                          forceLimit: float = 10.0,
+                          forceLimit: Optional[float] = 10.0,
                           forceAxis: str = 'y',
                           direction: Optional[str] = None,
+                          forceFrame: str = 'tcp',
+                          momentLimit: Optional[float] = None,
+                          momentAxis: Optional[str] = None,
                           isBackwardTraverse: bool = False) -> Tuple[bool]:
         """Execute servo path traversal with ramp-up and optional force control.
         
@@ -1124,13 +1152,33 @@ class WaypointCollector:
                 
                 # Force control (only during traversal, not retrace)
                 if enableForceControl and not isBackwardTraverse and (currentTime - lastForceCheck) >= forceCheckInterval:
-                    exceeded, msg = self._checkForceLimit(forceLimit, forceAxis, direction)
+                    exceeded, msg = self._checkForceLimit(
+                        forceLimit, forceAxis, direction,
+                        force_frame=forceFrame, moment_limit=momentLimit, moment_axis=momentAxis)
                     if self.progressCallback and msg:
                         self.progressCallback(msg)
                     if exceeded:
                         self.rtde_c.servoStop()
+                        time.sleep(0.2)
+                        # Snap stop index to actual TCP (like moveLPath). Time-based currentIdx can
+                        # lag/ahead of pose; without this, backward retrace starts too far along the path
+                        # and the first return commands look like moving further forward.
+                        stoppedPose = self.robot.getTcpPose()
+                        if stoppedPose:
+                            closest_i = 0
+                            min_dist = float("inf")
+                            for i, wp in enumerate(waypoints):
+                                dist = np.sqrt(
+                                    sum((stoppedPose[j] - wp[j]) ** 2 for j in range(3))
+                                )
+                                if dist < min_dist:
+                                    min_dist = dist
+                                    closest_i = i
+                            self.traverseStopIndex = min(closest_i, currentIdx)
                         if self.progressCallback:
-                            self.progressCallback("Force threshold exceeded! Stopping.")
+                            self.progressCallback(
+                                f"Force threshold exceeded! Stopping at path index {self.traverseStopIndex}."
+                            )
                         self._printTraverseStats(trackingTcpPoses, trackingFlangePoses, trackingTimestamps, f"{action} (force stop)")
                         return False
                     lastForceCheck = currentTime
@@ -1562,46 +1610,130 @@ class WaypointCollector:
             computeStats(flangePoses, timestamps, "Flange")
         print()
     
-    def _checkForceLimit(self, forceLimit: float, forceAxis: str,
-                         direction: Optional[str]) -> Tuple[bool, Optional[str]]:
-        """Check if force limit is exceeded. Returns (exceeded, message).
+    def _checkForceLimit(
+        self,
+        force_limit: Optional[float],
+        force_axis: Optional[str],
+        direction: Optional[str],
+        *,
+        force_frame: str = 'tcp',
+        moment_limit: Optional[float] = None,
+        moment_axis: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """Check traverse force/moment limits (aligned with movement code). Returns (exceeded, message).
         
         Args:
-            forceLimit: Limit value (N for forces, Nm for torques)
-            forceAxis: 'x' (Fx), 'y' (Fy), or 'mz' (Mz torque about TCP z)
-            direction: 'left' or 'right' for direction-dependent sign checks
+            force_limit: N for Fx/Fy, Nm for Mz (None skips that axis's check)
+            force_axis: 'x', 'y', or 'mz'
+            direction: 'left' or 'right' for direction-dependent checks
+            force_frame: 'tcp' or 'ref' for translational x/y (flexion uses ref)
+            moment_limit: TCP Mx/My limit (Nm); 0 or None disables
+            moment_axis: 'mx' or 'my' (flexion)
         """
         try:
-            tcpForce = self.robot.getTcpForceInTcpFrame()
-            if tcpForce is None:
-                tcpForce = [0.0] * 6
-            
-            if forceAxis == 'mz':
-                forceValue = tcpForce[5]
-                exceeded = abs(forceValue) > forceLimit
-                return exceeded, f"Mz: {forceValue:.2f} Nm (limit: ±{forceLimit:.1f} Nm)"
-            
-            forceIndex = 0 if forceAxis == 'x' else 1
-            forceLabel = 'Fx' if forceAxis == 'x' else 'Fy'
-            forceValue = tcpForce[forceIndex]
-            
-            exceeded = False
-            if forceAxis == 'x':
-                if direction == 'left' and forceValue > forceLimit:
-                    exceeded = True
-                elif direction == 'right' and forceValue < -forceLimit:
-                    exceeded = True
-                elif direction is None and abs(forceValue) > forceLimit:
-                    exceeded = True
-            else:  # y-axis
-                if direction == 'left' and forceValue < -forceLimit:
-                    exceeded = True
-                elif direction == 'right' and forceValue > forceLimit:
-                    exceeded = True
-                elif direction is None and abs(forceValue) > forceLimit:
-                    exceeded = True
-            
-            return exceeded, f"{forceLabel}: {forceValue:.2f} N (limit: ±{forceLimit:.1f} N)"
+            tcp_force = self.robot.getTcpForceInTcpFrame()
+            if tcp_force is None:
+                tcp_force = [0.0] * 6
+
+            fa = (force_axis or 'y').lower()
+            ff = (force_frame or 'tcp').lower()
+            ref_wrench: Optional[List[float]] = None
+
+            def _ref_wrench() -> List[float]:
+                nonlocal ref_wrench
+                if ref_wrench is None:
+                    rel = self.robot.getRefFrameRelativeTo()
+                    ref_wrench = self.robot.getRefFrameForceInRefFrame(rel)
+                    if ref_wrench is None:
+                        ref_wrench = [0.0] * 6
+                return ref_wrench
+
+            status_parts: List[str] = []
+            exceed_parts: List[str] = []
+            exceeded_any = False
+
+            # --- Mz (rotation / new_z): same directional rules as movement ---
+            if fa == 'mz' and force_limit is not None and force_limit > 0:
+                mz = tcp_force[5]
+                if direction == 'left':
+                    lim_disp = f"limit: > -{force_limit:.2f} Nm"
+                    t_ex = mz < -force_limit
+                elif direction == 'right':
+                    lim_disp = f"limit: < {force_limit:.2f} Nm"
+                    t_ex = mz > force_limit
+                else:
+                    lim_disp = f"limit: ±{force_limit:.2f} Nm"
+                    t_ex = abs(mz) > force_limit
+                status_parts.append(f"Mz: {mz:.2f} Nm ({lim_disp})")
+                if t_ex:
+                    exceeded_any = True
+                    exceed_parts.append(f"Mz: {mz:.3f} Nm ({lim_disp})")
+
+            # --- Translational Fx / Fy ---
+            elif fa in ('x', 'y') and force_limit is not None:
+                if ff == 'ref':
+                    w = _ref_wrench()
+                    f_idx = 0 if fa == 'x' else 1
+                    force_value = w[f_idx]
+                    tag = '(ref)'
+                else:
+                    f_idx = 0 if fa == 'x' else 1
+                    force_value = tcp_force[f_idx]
+                    tag = '(tcp)'
+                flab = 'Fx' if fa == 'x' else 'Fy'
+                t_ex = False
+                if fa == 'x':
+                    if direction == 'left' and force_value > force_limit:
+                        t_ex = True
+                    elif direction == 'right' and force_value < -force_limit:
+                        t_ex = True
+                    elif direction is None and abs(force_value) > force_limit:
+                        t_ex = True
+                    lim_disp = (
+                        f"limit: < {force_limit:.2f} N" if direction == 'left'
+                        else f"limit: > -{force_limit:.2f} N" if direction == 'right'
+                        else f"limit: ±{force_limit:.2f} N")
+                else:
+                    if direction == 'left' and force_value < -force_limit:
+                        t_ex = True
+                    elif direction == 'right' and force_value > force_limit:
+                        t_ex = True
+                    elif direction is None and abs(force_value) > force_limit:
+                        t_ex = True
+                    lim_disp = (
+                        f"limit: > -{force_limit:.2f} N" if direction == 'left'
+                        else f"limit: < {force_limit:.2f} N" if direction == 'right'
+                        else f"limit: ±{force_limit:.2f} N")
+                status_parts.append(f"{flab}{tag}: {force_value:.2f} N ({lim_disp})")
+                if t_ex:
+                    exceeded_any = True
+                    exceed_parts.append(f"{flab}{tag}: {force_value:.3f} N ({lim_disp})")
+
+            # --- Flexion TCP moment Mx / My (alongside x/y force) ---
+            ma = (moment_axis or '').lower()
+            if ma in ('mx', 'my') and moment_limit is not None and moment_limit > 0:
+                mi = 3 if ma == 'mx' else 4
+                mval = tcp_force[mi]
+                mlab = 'Mx' if ma == 'mx' else 'My'
+                if direction == 'left':
+                    lim_disp = f"limit: < {moment_limit:.2f} Nm"
+                    m_ex = mval > moment_limit
+                elif direction == 'right':
+                    lim_disp = f"limit: > -{moment_limit:.2f} Nm"
+                    m_ex = mval < -moment_limit
+                else:
+                    lim_disp = f"limit: ±{moment_limit:.2f} Nm"
+                    m_ex = abs(mval) > moment_limit
+                status_parts.append(f"{mlab}: {mval:.2f} Nm ({lim_disp})")
+                if m_ex:
+                    exceeded_any = True
+                    exceed_parts.append(f"{mlab}: {mval:.3f} Nm ({lim_disp})")
+
+            if exceeded_any:
+                return True, "Limit exceeded! " + "; ".join(exceed_parts)
+            if status_parts:
+                return False, " | ".join(status_parts)
+            return False, None
         except Exception as e:
             return False, f"Force check error: {e}"
 

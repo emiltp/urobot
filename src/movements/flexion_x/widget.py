@@ -145,7 +145,7 @@ class FlexionXWidget(QWidget):
         fy_layout = QHBoxLayout()
         fy_layout.addWidget(QLabel("Max TCP Fy (N):"))
         self.fy_limit_input = QDoubleSpinBox()
-        self.fy_limit_input.setRange(0.1, 100.0)
+        self.fy_limit_input.setRange(0.1, 200.0)
         self.fy_limit_input.setDecimals(2)
         self.fy_limit_input.setValue(CONFIG.flexion_x.force_limit_y)
         self.fy_limit_input.setSingleStep(0.1)
@@ -475,7 +475,7 @@ class FlexionXWidget(QWidget):
         self.replay_group.addLayout(flange_process_layout)
         
         self.end_force_control_checkbox = QCheckBox("Enable End Force Control")
-        self.end_force_control_checkbox.setChecked(True)
+        self.end_force_control_checkbox.setChecked(False)
         self.replay_group.addWidget(self.end_force_control_checkbox)
         
         layout.addWidget(self.replay_group)
@@ -815,6 +815,7 @@ class FlexionXWidget(QWidget):
         replay_speed = self.replay_speed_input.value()
         enable_end_force = self.end_force_control_checkbox.isChecked()
         force_limit = self.fy_limit_input.value()
+        max_moment = self.mx_limit_input.value()
         
         # Disable freedrive mode if active
         self.app._disable_freedrive_for_movement("path replay")
@@ -823,7 +824,9 @@ class FlexionXWidget(QWidget):
         print(f"Replay speed: {replay_speed} m/s")
         print(f"Force limit control: {'enabled' if enable_end_force else 'disabled'}")
         if enable_end_force:
-            print(f"Force limit Fy: {force_limit} N")
+            print(f"Force limit Fy (ref): {force_limit} N")
+            if max_moment > 0:
+                print(f"Max moment Mx (TCP): {max_moment} Nm")
         
         widget = self
         
@@ -845,6 +848,9 @@ class FlexionXWidget(QWidget):
             enableForceControl=enable_end_force,
             forceLimit=force_limit,
             forceAxis='y',
+            forceFrame='ref',
+            momentLimit=max_moment,
+            momentAxis='mx',
             direction=direction,
             autoReturn=True,
             motionLogFile=getLogfilePath(log_filename)
